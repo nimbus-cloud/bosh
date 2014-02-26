@@ -6,6 +6,7 @@ require 'securerandom'
 
 module Bosh
   module Blobstore
+
     class S3BlobstoreClient < BaseClient
 
       ENDPOINT = 'https://s3.amazonaws.com'
@@ -34,7 +35,9 @@ module Bosh
           use_ssl: @options.fetch(:use_ssl, true),
           s3_port: @options.fetch(:port, 443),
           s3_endpoint: @options.fetch(:host, URI.parse(S3BlobstoreClient::ENDPOINT).host),
-          s3_force_path_style: @options.fetch(:s3_force_path_style, false),
+          ssl_verify_peer: @options.fetch(:ssl_verify_peer, true),
+          s3_multipart_threshold: @options.fetch(:s3_multipart_threshold, 16_777_216),
+          s3_force_path_style: true,
         }
 
         # using S3 without credentials is a special case:
@@ -81,6 +84,7 @@ module Bosh
       # @param [String] object_id object id to retrieve
       # @param [File] file file to store the retrived object in
       def get_file(object_id, file)
+
         object_id = full_oid_path(object_id)
         return @simple.get_file(object_id, file) if @simple
 
@@ -98,7 +102,6 @@ module Bosh
             file.write(chunk)
           end
         end
-
         file.write(cipher.final) if @encryption_key
 
       rescue AWS::S3::Errors::NoSuchKey => e
