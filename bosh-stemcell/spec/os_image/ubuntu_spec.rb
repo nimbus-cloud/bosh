@@ -141,6 +141,7 @@ describe 'Ubuntu OS image' do
 
   context 'installed by system_kernel' do
     %w(
+      linux-headers-virtual
       linux-image-virtual
     ).each do |pkg|
       describe package(pkg) do
