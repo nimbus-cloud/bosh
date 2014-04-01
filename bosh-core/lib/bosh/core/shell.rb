@@ -21,12 +21,19 @@ module Bosh::Core
       stdout.puts command if options[:output_command]
       lines = []
 
-      io = IO.popen(command)
-      io.each do |line|
-        stdout.puts line.chomp
-        lines << line.chomp
+      rout, wout = IO.pipe
+
+      pid = Process.spawn(command, out: wout)
+
+      Thread.new do
+        rout.each_line do |line|
+          stdout.puts line.chomp
+          lines << line.chomp
+        end
       end
-      io.close
+
+      Process.wait(pid)
+      wout.close
 
       lines
     end
