@@ -219,7 +219,7 @@ module Bosh::Stemcell
 
     def default_vsphere_stages
       [
-        :system_open_vm_tools,
+        #:system_open_vm_tools,
         :system_vsphere_cdrom,
         # Misc
         :system_parameters,
@@ -239,7 +239,7 @@ module Bosh::Stemcell
 
     def default_vcloud_stages
       [
-        :system_open_vm_tools,
+        #:system_open_vm_tools,
         :system_vsphere_cdrom,
         # Misc
         :system_parameters,
