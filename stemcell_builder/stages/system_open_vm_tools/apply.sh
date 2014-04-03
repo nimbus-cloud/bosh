@@ -8,26 +8,7 @@ base_dir=$(readlink -nf $(dirname $0)/../..)
 source $base_dir/lib/prelude_apply.bash
 source $base_dir/lib/prelude_bosh.bash
 
-# Only install open-vm-tools on trusty
-# FIXME: do we need to update these debs?
-[ $DISTRIB_CODENAME != "trusty" ] && exit 0
-
-mkdir -p $chroot/tmp
-cp $assets_dir/open-vm-*.deb $chroot/tmp
-
-# open-vm-tools needed to be backported to work with the 2.6.38 kernel
-# https://bugs.launchpad.net/ubuntu/+source/open-vm-tools/+bug/746152
-run_in_chroot $chroot "dpkg -i /tmp/open-vm-*.deb || true"
-
-# Fix missing dependencies for the open-vm debs
-pkg_mgr install
-
-# Remove debs
-run_in_chroot $chroot "rm -f /tmp/*.deb"
-
-run_in_chroot $chroot "
-ln -s /etc/init.d/open-vm-tools /etc/rc2.d/S88open-vm-tools
-"
+pkg_mgr install open-vm-tools
 
 # replace vmxnet3 from included kernel
 mkdir -p $chroot/tmp
