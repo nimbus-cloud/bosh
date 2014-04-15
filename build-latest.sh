@@ -86,4 +86,4 @@ fi
 PLATFORM=$1
 OS=$1
 
-echo CANDIDATE_BUILD_NUMBER=`curl -s http://bosh_artifacts.cfapps.io/ | grep "<strong>" | head -1 | sed s/[^0-9]*//g` http_proxy=http://localhost:3142/ bundle exec rake stemcell:build[$1,$2,ruby,ci4-bosh-os-images-ubuntu,`curl -s https://s3.amazonaws.com/ci4-bosh-os-images-$2/ | awk -F "Key>" '{print $2}' | cut -d "<" -f1`]
+CANDIDATE_BUILD_NUMBER=`curl -s http://bosh_artifacts.cfapps.io/ | grep "<strong>" | head -1 | sed s/[^0-9]*//g` http_proxy=http://localhost:3142/ bundle exec rake stemcell:build[$1,$2,ruby,ci4-bosh-os-images-ubuntu,`curl -s https://s3.amazonaws.com/ci4-bosh-os-images-$2/ | awk -F "Key>" '{print $2}' | cut -d "<" -f1 | tr -d '\r\n '`]
