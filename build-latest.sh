@@ -13,11 +13,13 @@ OSES=("ubuntu" "centos")
 function usage {
 	echo "usage:"
 	echo
-	echo "  $0 <platform> <os>"
+	echo "  $0 <platform> <os> [candidate_build_number]"
 	echo
 	echo "where:"
 	echo "  <platform> is one of warden|aws|openstack|vsphere|vcloud"
 	echo "        <os> is one of ubuntu|centos"
+	echo " and"
+	echo "  [candidate_build_number] is optionally the targetted build number"
 	exit
 }
 
@@ -82,8 +84,21 @@ then
 fi
 
 # at this point we should be ready to build...
+# just need to check 
+
+CANDIDATE_BUILD_NUMBER=0
+
+if test -z "$3"
+then
+	export CANDIDATE_BUILD_NUMBER=`curl -s http://bosh_artifacts.cfapps.io/ | grep "<strong>" | head -1 | sed s/[^0-9]*//g`
+else
+	echo "Over-riding candidate build number with: '$3'"
+	export CANDIDATE_BUILD_NUMBER=$3
+fi
+
+
 
 PLATFORM=$1
 OS=$1
 
-CANDIDATE_BUILD_NUMBER=`curl -s http://bosh_artifacts.cfapps.io/ | grep "<strong>" | head -1 | sed s/[^0-9]*//g` http_proxy=http://localhost:3142/ bundle exec rake stemcell:build[$1,$2,ruby,ci4-bosh-os-images-ubuntu,`curl -s https://s3.amazonaws.com/ci4-bosh-os-images-$2/ | awk -F "Key>" '{print $2}' | cut -d "<" -f1 | tr -d '\r\n '`]
+CANDIDATE_BUILD_NUMBER=$CANDIDATE_BUILD_NUMBER http_proxy=http://localhost:3142/ bundle exec rake stemcell:build[$1,$2,ruby,ci4-bosh-os-images-ubuntu,`curl -s https://s3.amazonaws.com/ci4-bosh-os-images-$2/ | awk -F "Key>" '{print $2}' | cut -d "<" -f1 | tr -d '\r\n '`]
