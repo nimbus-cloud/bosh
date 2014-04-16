@@ -20,6 +20,7 @@ function usage {
 	echo "        <os> is one of ubuntu|centos"
 	echo " and"
 	echo "  [candidate_build_number] is optionally the targetted build number"
+	echo
 	exit
 }
 
