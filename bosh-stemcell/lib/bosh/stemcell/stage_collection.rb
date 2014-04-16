@@ -225,6 +225,9 @@ module Bosh::Stemcell
         # Finalisation
         :bosh_clean,
         :bosh_harden,
+        # customisations
+        :munin,
+        :root_certificate,
         # Image/bootloader
         :image_create,
         :image_install_grub,
