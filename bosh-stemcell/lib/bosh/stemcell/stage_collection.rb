@@ -228,6 +228,7 @@ module Bosh::Stemcell
         # customisations
 	:utils,
         :munin,
+	:nagios,
         :root_certificate,
 	:drbd,
         # Image/bootloader
