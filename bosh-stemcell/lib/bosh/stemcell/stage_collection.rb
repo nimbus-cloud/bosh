@@ -226,6 +226,7 @@ module Bosh::Stemcell
         :bosh_clean,
         :bosh_harden,
         # customisations
+	:utils,
         :munin,
         :root_certificate,
 	:drbd,
