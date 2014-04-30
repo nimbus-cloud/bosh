@@ -19,7 +19,7 @@ debs="nagios3"
 pkg_mgr install $debs
 
 # now make sure nagios doesn't startup 
-run_in_chroot $chroot "update-rc.d apache2 disable"
-run_in_chroot $chroot "update-rc.d nagios3 disable"
+#run_in_chroot $chroot "update-rc.d -f apache2 disable"
+run_in_chroot $chroot "update-rc.d -f nagios3 disable"
 
 

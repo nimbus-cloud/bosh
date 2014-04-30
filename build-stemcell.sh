@@ -1,9 +1,8 @@
 #!/bin/bash
 
 # 
-# Build the latest, most up to date stemcell for targeted platforms
-# 
-# 
+# By defult, build the latest, most up to date stemcell for targeted platforms, or
+# override with a build number
 # 
 
 PLATFORMS=("warden" "aws" "openstack" "vsphere" "vcloud")
@@ -41,6 +40,7 @@ else
 fi
 
 FOUND_OS=0
+BASE_OS_IMAGE=
 
 if test -z "$2"
 then
@@ -102,4 +102,7 @@ fi
 PLATFORM=$1
 OS=$1
 
-CANDIDATE_BUILD_NUMBER=$CANDIDATE_BUILD_NUMBER http_proxy=http://localhost:3142/ bundle exec rake stemcell:build[$1,$2,ruby,ci4-bosh-os-images-ubuntu,`curl -s https://s3.amazonaws.com/ci4-bosh-os-images-$2/ | awk -F "Key>" '{print $2}' | cut -d "<" -f1 | tr -d '\r\n '`]
+BUCKET_HASH=`curl -s https://s3.amazonaws.com/ci4-bosh-os-images-$2/ | awk -F "Key>" '{print $2}' | cut -d "<" -f1 | tr -d '\r\n '`
+echo "wget -c https://s3.amazonaws.com/ci4-bosh-os-images-$2/$BUCKET_HASH -O tmp/base_os_image.tgz"
+
+echo CANDIDATE_BUILD_NUMBER=$CANDIDATE_BUILD_NUMBER http_proxy=http://localhost:3142/ bundle exec rake stemcell:build_with_local_os_image[$1,$2,ruby,tmp/base_os_image.tgz]

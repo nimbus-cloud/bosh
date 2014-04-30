@@ -12,9 +12,8 @@ source $base_dir/lib/prelude_apply.bash
 debconf="debconf debconf/frontend select noninteractive"
 run_in_chroot $chroot "echo ${debconf} | debconf-set-selections"
 
-# Install base debs needed by munin
+# Install utility debs 
 debs="nano vim"
-# libdbd-pg-perl needed by postgresql
 
 pkg_mgr install $debs
 
