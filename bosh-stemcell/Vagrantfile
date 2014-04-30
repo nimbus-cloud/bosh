@@ -1,6 +1,10 @@
 env = ENV.to_hash
 vm_box = 'bosh-stemcell-dbef1d'
 
+%x(vagrant plugin install vagrant-omnibus) unless Vagrant.has_plugin?('vagrant-omnibus')
+%x(vagrant plugin install vagrant-vsphere) unless Vagrant.has_plugin?('vagrant-vsphere')
+%x(vagrant plugin install vagrant-berkshelf  --plugin-version 2.0.0.rc3) unless Vagrant.has_plugin?('vagrant-berkshelf')
+
 Vagrant.configure('2') do |config|
   config.vm.box = vm_box
   config.ssh.username = 'ubuntu'
@@ -36,12 +40,29 @@ Vagrant.configure('2') do |config|
     end
   end
 
+  config.vm.define :vsphere do |remote|
+    remote.vm.box = 'dummy'
+    remote.vm.network :private_network, ip: env.fetch('BOSH_STEMCELL_BUILDER_IP')
+    remote.vm.provider :vsphere do |vsphere|
+      vsphere.insecure = env.fetch('BOSH_VAGRANT_VSPHERE_insecure')
+      vsphere.host = env.fetch('BOSH_VAGRANT_VSPHERE_host')
+      vsphere.user = env.fetch('BOSH_VAGRANT_VSPHERE_user')
+      vsphere.password = env.fetch('BOSH_VAGRANT_VSPHERE_password')
+      vsphere.data_center_name = env.fetch('BOSH_VAGRANT_VSPHERE_data_center_name')
+      vsphere.compute_resource_name = env.fetch('BOSH_VAGRANT_VSPHERE_compute_resource_name')
+      vsphere.template_name = env.fetch('BOSH_VAGRANT_VSPHERE_vm_folder') + '/' + env.fetch('BOSH_VAGRANT_VSPHERE_template_name')
+      vsphere.customization_spec_name = env.fetch('BOSH_VAGRANT_VSPHERE_customization_spec_name')
+      vsphere.resource_pool_name = env.fetch('BOSH_VAGRANT_VSPHERE_resource_pool_name')
+      vsphere.name = env.fetch('BOSH_VAGRANT_VSPHERE_name')
+    end
+  end
+
   config.vm.provision :shell do |shell|
     shell.inline = <<-BASH
       mkdir -p /mnt/stemcells
       chown -R ubuntu /mnt/stemcells
       mkdir -p /bosh/tmp
-      git --git-dir=/bosh/.git --work-tree=/bosh checkout /bosh
+      #git --git-dir=/bosh/.git --work-tree=/bosh checkout /bosh
       (cd /bosh && git submodule update --init --recursive)
       chown -R ubuntu:ubuntu /bosh
       (cd /bosh && bundle install --local)
@@ -61,5 +82,5 @@ Vagrant.configure('2') do |config|
     }
   end
 
-  config.vm.synced_folder '../.git', '/bosh/.git'
+  config.vm.synced_folder '../', '/bosh/'
 end
