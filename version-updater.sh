@@ -8,7 +8,7 @@ TMP_DIR="version-updater-tmp.$$"
 STEMCELL_DATE="`date +%y%m%d%H%M`"
 
 ORIGINAL_STEMCELL=`ls -tr tmp/bosh-stemcell-????-*.tgz | tail -1`
-TMP_ORIGINAL_STEMCELL=tmp/$ORIGINAL_STEMCELL
+TMP_ORIGINAL_STEMCELL=$ORIGINAL_STEMCELL
 
 if [ -z $1 ];
 then
@@ -24,6 +24,8 @@ fi
 
 NEW_STEMCELL_NAME=`basename $TMP_ORIGINAL_STEMCELL | sed "s/-\([0-9]*\)-/-\1.$STEMCELL_DATE-/g"`
 EXISTING_STEMCELL_DIR=`dirname $TMP_ORIGINAL_STEMCELL`
+
+echo "Found stemcell to update: $TMP_ORIGINAL_STEMCELL"
 
 # make the directory
 mkdir -p $TMP_DIR
