@@ -5,20 +5,15 @@ set -e
 
 base_dir=$(readlink -nf $(dirname $0)/../..)
 source $base_dir/lib/prelude_apply.bash
+source $base_dir/lib/prelude_bosh.bash
 
-# Disable interactive dpkg
-debconf="debconf debconf/frontend select noninteractive"
-run_in_chroot $chroot "echo ${debconf} | debconf-set-selections"
+mkdir -p $chroot/$bosh_dir/src
+cp -r $dir/assets/drbd-8.4.4.tar.gz $chroot/$bosh_dir/src
 
-# Setup PPA for drbd 8.4
-cat > $chroot/etc/apt/sources.list.d/ppa-drbd.list <<EOS
-deb http://ppa.launchpad.net/icamargo/drbd/ubuntu $DISTRIB_CODENAME main 
-deb-src http://ppa.launchpad.net/icamargo/drbd/ubuntu $DISTRIB_CODENAME main 
-EOS
-run_in_chroot $chroot "apt-get update"
-
-# Install base debs needed by drbd
-debs="drbd8-utils"
-
-pkg_mgr install $debs
-
+run_in_bosh_chroot $chroot "
+cd src
+tar zxvf drbd-8.4.4.tar.gz
+cd drbd-8.4.4
+./configure --prefix=/ --with-km
+make KDIR=/usr/src/linux-headers-3.0.0-32-virtual && make install
+"
