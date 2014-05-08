@@ -1,0 +1,5 @@
+[haproxy*]
+user root
+env.backend http-routers tcp-routers
+env.frontend http-in https-in ssl-in
+env.url  http://localhost:8000/haproxyadmin?stats;csv
