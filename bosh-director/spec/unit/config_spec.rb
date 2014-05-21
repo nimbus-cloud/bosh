@@ -56,4 +56,36 @@ describe Bosh::Director::Config do
       end
     end
   end
+
+  describe '#cloud' do
+    before do
+      config = described_class.load_hash(test_config)
+      described_class.configure(config.hash)
+    end
+
+    it 'creates the cloud from the provider' do
+      cloud = double('cloud')
+      expect(Bosh::Clouds::Provider).to receive(:create).with(test_config['cloud'], described_class.uuid).and_return(cloud)
+      expect(described_class.cloud).to equal(cloud)
+    end
+
+    it 'caches the cloud instance' do
+      cloud = double('cloud')
+      expect(Bosh::Clouds::Provider).to receive(:create).once.and_return(cloud)
+      expect(described_class.cloud).to equal(cloud)
+      expect(described_class.cloud).to equal(cloud)
+    end
+  end
+
+  describe '#cpi_task_log' do
+    before do
+      config = described_class.load_hash(test_config)
+      described_class.configure(config.hash)
+      described_class.cloud_options['properties']['cpi_log'] = 'fake-cpi-log'
+    end
+
+    it 'returns cpi task log' do
+      expect(described_class.cpi_task_log).to eq('fake-cpi-log')
+    end
+  end
 end

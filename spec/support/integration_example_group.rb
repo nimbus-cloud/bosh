@@ -15,12 +15,33 @@ module IntegrationExampleGroup
     )
   end
 
+  def health_monitor
+    @health_monitor ||= Bosh::Spec::HealthMonitor.new(
+      current_sandbox.health_monitor_process,
+      logger,
+    )
+  end
+
   def bosh_runner
     @bosh_runner ||= Bosh::Spec::BoshRunner.new(
       BOSH_WORK_DIR,
       BOSH_CONFIG,
+      current_sandbox.cpi.method(:agent_log_path),
       logger
     )
+  end
+
+  def bosh_runner_in_work_dir(work_dir)
+    Bosh::Spec::BoshRunner.new(
+      work_dir,
+      BOSH_CONFIG,
+      current_sandbox.cpi.method(:agent_log_path),
+      logger
+    )
+  end
+
+  def waiter
+    @waiter ||= Bosh::Spec::Waiter.new(logger)
   end
 
   def target_and_login
@@ -29,8 +50,9 @@ module IntegrationExampleGroup
   end
 
   def upload_release
-    bosh_runner.run('create release', work_dir: TEST_RELEASE_DIR)
-    bosh_runner.run('upload release', work_dir: TEST_RELEASE_DIR)
+    runner = bosh_runner_in_work_dir(TEST_RELEASE_DIR)
+    runner.run('create release')
+    runner.run('upload release')
   end
 
   def upload_stemcell

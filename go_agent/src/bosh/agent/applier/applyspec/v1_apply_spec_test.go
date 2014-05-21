@@ -10,10 +10,9 @@ import (
 	models "bosh/agent/applier/models"
 )
 
-func init() {
-	Describe("Testing with Ginkgo", func() {
-		It("v1 apply spec json conversion", func() {
-
+var _ = Describe("V1ApplySpec", func() {
+	Describe("json unmarshalling", func() {
+		It("returns parsed apply spec from json", func() {
 			specJSON := `{
 				"properties": {
 					"logging": {"max_log_file_size": "10M"}
@@ -67,25 +66,33 @@ func init() {
 				}
 			}`
 
-			expectedNetworks := map[string]interface{}{
-				"manual-net": map[string]interface{}{
-					"cloud_properties": map[string]interface{}{"subnet": "subnet-xxxxxx"},
-					"default":          []interface{}{"dns", "gateway"},
-					"dns":              []interface{}{"xx.xx.xx.xx"},
-					"dns_record_name":  "job-index.job-name.manual-net.deployment-name.bosh",
-					"gateway":          "xx.xx.xx.xx",
-					"ip":               "xx.xx.xx.xx",
-					"netmask":          "xx.xx.xx.xx",
-				},
-				"vip-net": map[string]interface{}{
-					"cloud_properties": map[string]interface{}{"security_groups": []interface{}{"bosh"}},
-					"dns_record_name":  "job-index.job-name.vip-net.deployment-name.bosh",
-					"ip":               "xx.xx.xx.xx",
-					"type":             "vip",
-				},
-			}
+			spec := V1ApplySpec{}
+			err := json.Unmarshal([]byte(specJSON), &spec)
+			Expect(err).ToNot(HaveOccurred())
 
 			jobName := "router"
+
+			expectedNetworks := map[string]NetworkSpec{
+				"manual-net": NetworkSpec{
+					Fields: map[string]interface{}{
+						"cloud_properties": map[string]interface{}{"subnet": "subnet-xxxxxx"},
+						"default":          []interface{}{"dns", "gateway"},
+						"dns":              []interface{}{"xx.xx.xx.xx"},
+						"dns_record_name":  "job-index.job-name.manual-net.deployment-name.bosh",
+						"gateway":          "xx.xx.xx.xx",
+						"ip":               "xx.xx.xx.xx",
+						"netmask":          "xx.xx.xx.xx",
+					},
+				},
+				"vip-net": NetworkSpec{
+					Fields: map[string]interface{}{
+						"cloud_properties": map[string]interface{}{"security_groups": []interface{}{"bosh"}},
+						"dns_record_name":  "job-index.job-name.vip-net.deployment-name.bosh",
+						"ip":               "xx.xx.xx.xx",
+						"type":             "vip",
+					},
+				},
+			}
 
 			expectedSpec := V1ApplySpec{
 				PropertiesSpec: PropertiesSpec{
@@ -98,8 +105,8 @@ func init() {
 					Sha1:        "router sha1",
 					BlobstoreID: "router-blob-id-1",
 					JobTemplateSpecs: []JobTemplateSpec{
-						{Name: "template 1", Version: "0.1", Sha1: "template 1 sha1", BlobstoreID: "template-blob-id-1"},
-						{Name: "template 2", Version: "0.2", Sha1: "template 2 sha1", BlobstoreID: "template-blob-id-2"},
+						JobTemplateSpec{Name: "template 1", Version: "0.1", Sha1: "template 1 sha1", BlobstoreID: "template-blob-id-1"},
+						JobTemplateSpec{Name: "template 2", Version: "0.2", Sha1: "template 2 sha1", BlobstoreID: "template-blob-id-2"},
 					},
 				},
 				PackageSpecs: map[string]PackageSpec{
@@ -113,14 +120,12 @@ func init() {
 				NetworkSpecs: expectedNetworks,
 			}
 
-			spec := V1ApplySpec{}
-			err := json.Unmarshal([]byte(specJSON), &spec)
-			Expect(err).ToNot(HaveOccurred())
 			Expect(spec).To(Equal(expectedSpec))
-			Expect(spec.NetworkSpecs).To(Equal(expectedNetworks))
 		})
+	})
 
-		It("jobs with specified job templates", func() {
+	Describe("Jobs", func() {
+		It("returns jobs specified in job specs", func() {
 			jobName := "fake-job-legacy-name"
 
 			spec := V1ApplySpec{
@@ -144,9 +149,44 @@ func init() {
 						},
 					},
 				},
+				PackageSpecs: map[string]PackageSpec{
+					"fake-package1": PackageSpec{
+						Name:        "fake-package1-name",
+						Version:     "fake-package1-version",
+						Sha1:        "fake-package1-sha1",
+						BlobstoreID: "fake-package1-blob-id",
+					},
+					"fake-package2": PackageSpec{
+						Name:        "fake-package2-name",
+						Version:     "fake-package2-version",
+						Sha1:        "fake-package2-sha1",
+						BlobstoreID: "fake-package2-blob-id",
+					},
+				},
 				RenderedTemplatesArchiveSpec: RenderedTemplatesArchiveSpec{
 					Sha1:        "fake-rendered-templates-archive-sha1",
 					BlobstoreID: "fake-rendered-templates-archive-blobstore-id",
+				},
+			}
+
+			expectedPackagesOnEachJob := []models.Package{
+				models.Package{
+					Name:    "fake-package1-name",
+					Version: "fake-package1-version",
+					Source: models.Source{
+						Sha1:          "fake-package1-sha1",
+						BlobstoreID:   "fake-package1-blob-id",
+						PathInArchive: "",
+					},
+				},
+				models.Package{
+					Name:    "fake-package2-name",
+					Version: "fake-package2-version",
+					Source: models.Source{
+						Sha1:          "fake-package2-sha1",
+						BlobstoreID:   "fake-package2-blob-id",
+						PathInArchive: "",
+					},
 				},
 			}
 
@@ -159,6 +199,7 @@ func init() {
 						BlobstoreID:   "fake-rendered-templates-archive-blobstore-id",
 						PathInArchive: "fake-job1-name",
 					},
+					Packages: expectedPackagesOnEachJob,
 				},
 				models.Job{
 					Name:    "fake-job2-name",
@@ -168,16 +209,19 @@ func init() {
 						BlobstoreID:   "fake-rendered-templates-archive-blobstore-id",
 						PathInArchive: "fake-job2-name",
 					},
+					Packages: expectedPackagesOnEachJob,
 				},
 			}))
 		})
 
-		It("jobs when no jobs specified", func() {
+		It("returns no jobs when no jobs specified", func() {
 			spec := V1ApplySpec{}
 			Expect(spec.Jobs()).To(Equal([]models.Job{}))
 		})
+	})
 
-		It("packages", func() {
+	Describe("Packages", func() {
+		It("retuns packages", func() {
 			spec := V1ApplySpec{
 				PackageSpecs: map[string]PackageSpec{
 					"fake-package1-name-key": PackageSpec{
@@ -201,17 +245,78 @@ func init() {
 			}))
 		})
 
-		It("packages when no packages specified", func() {
+		It("returns no packages when no packages specified", func() {
 			spec := V1ApplySpec{}
 			Expect(spec.Packages()).To(Equal([]models.Package{}))
 		})
+	})
 
-		It("max log file size", func() {
+	Describe("MaxLogFileSize", func() {
+		It("returns 50M if size is not provided", func() {
 			spec := V1ApplySpec{}
 			Expect(spec.MaxLogFileSize()).To(Equal("50M"))
+		})
 
+		It("returns provided size", func() {
+			spec := V1ApplySpec{}
 			spec.PropertiesSpec.LoggingSpec.MaxLogFileSize = "fake-size"
 			Expect(spec.MaxLogFileSize()).To(Equal("fake-size"))
 		})
 	})
-}
+})
+
+var _ = Describe("NetworkSpec", func() {
+	Describe("IsDynamic", func() {
+		It("returns true if type is 'dynamic'", func() {
+			networkSpec := NetworkSpec{
+				Fields: map[string]interface{}{"type": NetworkSpecTypeDynamic},
+			}
+			Expect(networkSpec.IsDynamic()).To(BeTrue())
+		})
+
+		It("returns false if type is not 'dynamic'", func() {
+			Expect(NetworkSpec{}.IsDynamic()).To(BeFalse())
+
+			networkSpec := NetworkSpec{
+				Fields: map[string]interface{}{"type": "vip"},
+			}
+			Expect(networkSpec.IsDynamic()).To(BeFalse())
+		})
+	})
+
+	Describe("PopulateIPInfo", func() {
+		It("populates network spec with ip, netmask and gateway addressess", func() {
+			networkSpec := NetworkSpec{}
+
+			networkSpec = networkSpec.PopulateIPInfo("fake-ip", "fake-netmask", "fake-gateway")
+
+			Expect(networkSpec).To(Equal(NetworkSpec{
+				Fields: map[string]interface{}{
+					"ip":      "fake-ip",
+					"netmask": "fake-netmask",
+					"gateway": "fake-gateway",
+				},
+			}))
+		})
+
+		It("overwrites network spec with ip, netmask and gateway addressess", func() {
+			networkSpec := NetworkSpec{
+				Fields: map[string]interface{}{
+					"ip":      "fake-old-ip",
+					"netmask": "fake-old-netmask",
+					"gateway": "fake-old-gateway",
+				},
+			}
+
+			networkSpec = networkSpec.PopulateIPInfo("fake-ip", "fake-netmask", "fake-gateway")
+
+			Expect(networkSpec).To(Equal(NetworkSpec{
+				Fields: map[string]interface{}{
+					"ip":      "fake-ip",
+					"netmask": "fake-netmask",
+					"gateway": "fake-gateway",
+				},
+			}))
+		})
+	})
+})

@@ -11,6 +11,7 @@ import (
 	boshlog "bosh/logger"
 	boshmbus "bosh/mbus"
 	boshplatform "bosh/platform"
+	boshsyslog "bosh/syslog"
 )
 
 type Agent struct {
@@ -19,9 +20,10 @@ type Agent struct {
 	platform          boshplatform.Platform
 	actionDispatcher  ActionDispatcher
 	heartbeatInterval time.Duration
-	alertBuilder      boshalert.Builder
+	alertSender       AlertSender
 	jobSupervisor     boshjobsuper.JobSupervisor
 	specService       boshas.V1Service
+	syslogServer      boshsyslog.Server
 }
 
 func New(
@@ -29,9 +31,10 @@ func New(
 	mbusHandler boshhandler.Handler,
 	platform boshplatform.Platform,
 	actionDispatcher ActionDispatcher,
-	alertBuilder boshalert.Builder,
+	alertSender AlertSender,
 	jobSupervisor boshjobsuper.JobSupervisor,
 	specService boshas.V1Service,
+	syslogServer boshsyslog.Server,
 	heartbeatInterval time.Duration,
 ) (a Agent) {
 	a.logger = logger
@@ -39,9 +42,10 @@ func New(
 	a.platform = platform
 	a.actionDispatcher = actionDispatcher
 	a.heartbeatInterval = heartbeatInterval
-	a.alertBuilder = alertBuilder
+	a.alertSender = alertSender
 	a.jobSupervisor = jobSupervisor
 	a.specService = specService
+	a.syslogServer = syslogServer
 	return
 }
 
@@ -51,21 +55,25 @@ func (a Agent) Run() error {
 		return bosherr.WrapError(err, "Starting Monit")
 	}
 
-	errChan := make(chan error, 1)
+	errCh := make(chan error, 1)
 
 	a.actionDispatcher.ResumePreviouslyDispatchedTasks()
 
-	go a.subscribeActionDispatcher(errChan)
-	go a.generateHeartbeats(errChan)
-	go a.jobSupervisor.MonitorJobFailures(a.handleJobFailure(errChan))
+	go a.subscribeActionDispatcher(errCh)
+
+	go a.generateHeartbeats(errCh)
+
+	go a.jobSupervisor.MonitorJobFailures(a.handleJobFailure(errCh))
+
+	go a.syslogServer.Start(a.handleSyslogMsg(errCh))
 
 	select {
-	case err = <-errChan:
+	case err = <-errCh:
 		return err
 	}
 }
 
-func (a Agent) subscribeActionDispatcher(errChan chan error) {
+func (a Agent) subscribeActionDispatcher(errCh chan error) {
 	defer a.logger.HandlePanic("Agent Message Bus Handler")
 
 	err := a.mbusHandler.Run(a.actionDispatcher.Dispatch)
@@ -73,37 +81,37 @@ func (a Agent) subscribeActionDispatcher(errChan chan error) {
 		err = bosherr.WrapError(err, "Message Bus Handler")
 	}
 
-	errChan <- err
+	errCh <- err
 }
 
-func (a Agent) generateHeartbeats(errChan chan error) {
+func (a Agent) generateHeartbeats(errCh chan error) {
 	defer a.logger.HandlePanic("Agent Generate Heartbeats")
 
 	// Send initial heartbeat
-	a.sendHeartbeat(errChan)
+	a.sendHeartbeat(errCh)
 
 	tickChan := time.Tick(a.heartbeatInterval)
 
 	for {
 		select {
 		case <-tickChan:
-			a.sendHeartbeat(errChan)
+			a.sendHeartbeat(errCh)
 		}
 	}
 }
 
-func (a Agent) sendHeartbeat(errChan chan error) {
+func (a Agent) sendHeartbeat(errCh chan error) {
 	heartbeat, err := a.getHeartbeat()
 	if err != nil {
 		err = bosherr.WrapError(err, "Building heartbeat")
-		errChan <- err
+		errCh <- err
 		return
 	}
 
 	err = a.mbusHandler.SendToHealthManager("heartbeat", heartbeat)
 	if err != nil {
 		err = bosherr.WrapError(err, "Sending heartbeat")
-		errChan <- err
+		errCh <- err
 	}
 }
 
@@ -129,19 +137,22 @@ func (a Agent) getHeartbeat() (boshmbus.Heartbeat, error) {
 	return hb, nil
 }
 
-func (a Agent) handleJobFailure(errChan chan error) boshjobsuper.JobFailureHandler {
+func (a Agent) handleJobFailure(errCh chan error) boshjobsuper.JobFailureHandler {
 	return func(monitAlert boshalert.MonitAlert) error {
-		alert, err := a.alertBuilder.Build(monitAlert)
+		err := a.alertSender.SendAlert(monitAlert)
 		if err != nil {
-			return bosherr.WrapError(err, "Building alert")
-		}
-
-		err = a.mbusHandler.SendToHealthManager("alert", alert)
-		if err != nil {
-			err = bosherr.WrapError(err, "Sending heartbeat")
-			errChan <- err
+			errCh <- bosherr.WrapError(err, "Sending alert")
 		}
 
 		return nil
+	}
+}
+
+func (a Agent) handleSyslogMsg(errCh chan error) boshsyslog.CallbackFunc {
+	return func(msg boshsyslog.Msg) {
+		err := a.alertSender.SendSSHAlert(msg)
+		if err != nil {
+			errCh <- bosherr.WrapError(err, "Sending SSH alert")
+		}
 	}
 }

@@ -168,11 +168,19 @@ properties:
     description: Host of blobstore server used by simple blobstore plugin
   blobstore.use_ssl:
     description: Whether the simple blobstore plugin should use SSL to connect to the blobstore server
+    default: true
+  blobstore.s3_port:
+    description: Port of blobstore server used by s3 blobstore plugin
+    default: 443
+  blobstore.s3_force_path_style:
+    description: Whether s3 blobstore plugin will always use path style for bucket access
+    default: false
   blobstore.ssl_verify_peer:
     description: Verify the SSL certificate used on the blobstore?
     default: true
   blobstore.s3_multipart_threshold:
     description: Byte threshold at which blob uploads should be broken into multi-part FORM uploads instead of single PUT
+    default: 16777216
   blobstore.director.user:
     description: Username director uses to connect to blobstore used by simple blobstore plugin
   blobstore.director.password:
@@ -212,12 +220,20 @@ properties:
   compiled_package_cache.options.host:
     description: Host of blobstore server used for compiled package cache
   compiled_package_cache.options.use_ssl:
-    description: Whether the simple blobstore plugin should use SSL to connect to the blobstore server  
+    description: Whether the simple blobstore plugin should use SSL to connect to the blobstore server
+    default: true
   compiled_package_cache.options.ssl_verify_peer:
     description: Verify the SSL certificate used on the blobstore?
     default: true
+  compiled_package_cache.options.s3_port:
+    description: Port of blobstore server used by s3 blobstore plugin
+    default: 443
+  compiled_package_cache.options.s3_force_path_style:
+    description: Whether s3 blobstore plugin will always use path style for bucket access
+    default: false
   compiled_package_cache.options.s3_multipart_threshold:
     description: Byte threshold at which blob uploads should be broken into multi-part FORM uploads instead of single PUT
+    default: 16777216
   compiled_package_cache.options.swift_provider:
     description:  OpenStack Swift provider (supported providers are hp, openstack and rackspace)
   compiled_package_cache.options.container_name:
@@ -251,6 +267,12 @@ properties:
     description: List of ntp server IPs
     default: []
 
+  # Cpi
+  external_cpi.enabled:
+    description: Enables external cpi
+    default: false
+  external_cpi.name:
+    description: Name of external cpi package
   agent.blobstore.access_key_id:
     description: AWS access_key_id for agent used by s3 blobstore plugin
   agent.blobstore.secret_access_key:
@@ -263,11 +285,16 @@ properties:
     description: Host of blobstore server used by simple blobstore plugin
   agent.blobstore.use_ssl:
     description: Whether the simple blobstore plugin should use SSL to connect to the blobstore server
+    default: true
   agent.blobstore.ssl_verify_peer:
     description: Verify the SSL certificate used on the blobstore?
     default: true
+  agent.blobstore.s3_force_path_style:
+    description: Whether s3 blobstore plugin will always use path style for bucket access
+    default: false
   agent.blobstore.s3_multipart_threshold:
     description: Byte threshold at which blob uploads should be broken into multi-part FORM uploads instead of single PUT
+    default: 16777216
   agent.nats.address:
     description: Address for agent to connect to nats
   registry.address:
@@ -316,6 +343,9 @@ properties:
     description: Default OpenStack keypair to use when spinning up new vms
   openstack.default_security_groups:
     description: Default OpenStack security groups to use when spinning up new vms
+  openstack.wait_resource_poll_interval:
+    description: Changes the delay (in seconds) between each status check to OpenStack when creating a resource
+    default: 5
   vcenter.address:
     description: Address of vCenter server used by vsphere cpi
   vcenter.user:

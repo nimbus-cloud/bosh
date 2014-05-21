@@ -1,13 +1,12 @@
 package infrastructure
 
 import (
+	"time"
+
 	bosherr "bosh/errors"
 	boshdpresolv "bosh/infrastructure/devicepathresolver"
 	boshlog "bosh/logger"
 	boshplatform "bosh/platform"
-	boshdir "bosh/settings/directories"
-	boshsys "bosh/system"
-	"time"
 )
 
 type Provider struct {
@@ -15,42 +14,53 @@ type Provider struct {
 }
 
 func NewProvider(logger boshlog.Logger, platform boshplatform.Platform) (p Provider) {
-	digDNSResolver := NewDigDNSResolver(logger)
+	metadataService := NewConcreteMetadataService(
+		"http://169.254.169.254",
+		NewDigDNSResolver(logger),
+	)
+
+	// Currently useServerNameAsID boolean setting is hard coded below
+	// because we do not support arbitrary infrastructure configurations
+	awsRegistry := NewConcreteRegistry(metadataService, false)
+	openstackRegistry := NewConcreteRegistry(metadataService, true)
+
+	fs := platform.GetFs()
+	dirProvider := platform.GetDirProvider()
+
+	mappedDevicePathResolver := boshdpresolv.NewMappedDevicePathResolver(500*time.Millisecond, fs)
+	vsphereDevicePathResolver := boshdpresolv.NewVsphereDevicePathResolver(500*time.Millisecond, fs)
+	dummyDevicePathResolver := boshdpresolv.NewDummyDevicePathResolver()
+
+	awsInfrastructure := NewAwsInfrastructure(
+		metadataService,
+		awsRegistry,
+		platform,
+		mappedDevicePathResolver,
+		logger,
+	)
+
+	openstackInfrastructure := NewOpenstackInfrastructure(
+		metadataService,
+		openstackRegistry,
+		platform,
+		mappedDevicePathResolver,
+		logger,
+	)
 
 	p.infrastructures = map[string]Infrastructure{
-		"aws":     p.createAwsInfrastructure("http://169.254.169.254", digDNSResolver, platform),
-		"dummy":   p.createDummyInfrastructure(platform.GetFs(), platform.GetDirProvider(), platform),
-		"vsphere": p.createVsphereInfrastructure(platform, logger),
+		"aws":       awsInfrastructure,
+		"openstack": openstackInfrastructure,
+		"dummy":     NewDummyInfrastructure(fs, dirProvider, platform, dummyDevicePathResolver),
+		"warden":    NewWardenInfrastructure(dirProvider, platform, dummyDevicePathResolver),
+		"vsphere":   NewVsphereInfrastructure(platform, vsphereDevicePathResolver, logger),
 	}
 	return
 }
 
-func (p Provider) Get(name string) (inf Infrastructure, err error) {
+func (p Provider) Get(name string) (Infrastructure, error) {
 	inf, found := p.infrastructures[name]
-
 	if !found {
-		err = bosherr.New("Infrastructure %s could not be found", name)
+		return nil, bosherr.New("Infrastructure %s could not be found", name)
 	}
-	return
-}
-
-func (p Provider) createVsphereInfrastructure(platform boshplatform.Platform, logger boshlog.Logger) (inf Infrastructure) {
-	devicePathResolver := boshdpresolv.NewVsphereDevicePathResolver(500*time.Millisecond, platform.GetFs())
-	inf = NewVsphereInfrastructure(platform, devicePathResolver, logger)
-	return
-}
-
-func (p Provider) createAwsInfrastructure(metadataHost string, resolver dnsResolver,
-	platform boshplatform.Platform) (inf Infrastructure) {
-
-	devicePathResolver := boshdpresolv.NewAwsDevicePathResolver(500*time.Millisecond, platform.GetFs())
-	inf = NewAwsInfrastructure(metadataHost, resolver, platform, devicePathResolver)
-	return
-}
-
-func (p Provider) createDummyInfrastructure(fs boshsys.FileSystem, dirProvider boshdir.DirectoriesProvider,
-	platform boshplatform.Platform) (inf Infrastructure) {
-	devicePathResolver := boshdpresolv.NewDummyDevicePathResolver(1*time.Millisecond, platform.GetFs())
-	inf = NewDummyInfrastructure(fs, dirProvider, platform, devicePathResolver)
-	return
+	return inf, nil
 }

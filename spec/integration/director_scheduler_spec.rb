@@ -15,16 +15,17 @@ describe 'director_scheduler', type: :integration do
 
   before do
     target_and_login
-    bosh_runner.run('reset release', work_dir: TEST_RELEASE_DIR)
-    bosh_runner.run('create release --force', work_dir: TEST_RELEASE_DIR)
-    bosh_runner.run('upload release', work_dir: TEST_RELEASE_DIR)
-    bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
+    runner = bosh_runner_in_work_dir(TEST_RELEASE_DIR)
+    runner.run('reset release')
+    runner.run('create release --force')
+    runner.run('upload release')
+    runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
 
     deployment_hash = Bosh::Spec::Deployments.simple_manifest
     deployment_hash['jobs'][0]['persistent_disk'] = 20480
     deployment_manifest = yaml_file('simple', deployment_hash)
-    bosh_runner.run("deployment #{deployment_manifest.path}")
-    bosh_runner.run('deploy')
+    runner.run("deployment #{deployment_manifest.path}")
+    runner.run('deploy')
   end
 
   describe 'scheduled disk snapshots' do
@@ -32,18 +33,13 @@ describe 'director_scheduler', type: :integration do
     after { current_sandbox.scheduler_process.stop }
 
     it 'snapshots a disk on a defined schedule' do
-      30.times do
-        break unless snapshots.empty?
-        sleep 1
-      end
+      waiter.wait(60) { expect(snapshots).to_not be_empty }
 
       keys = %w[deployment job index director_name director_uuid agent_id instance_id]
       snapshots.each do |snapshot|
         json = JSON.parse(File.read(snapshot))
         expect(json.keys - keys).to be_empty
       end
-
-      expect(snapshots).to_not be_empty
     end
 
     def snapshots
@@ -58,12 +54,7 @@ describe 'director_scheduler', type: :integration do
     after { current_sandbox.scheduler_process.stop }
 
     it 'backs up bosh on a defined schedule' do
-      30.times do
-        break unless backups.empty?
-        sleep 1
-      end
-
-      expect(backups).to_not be_empty
+      waiter.wait(60) { expect(backups).to_not be_empty }
     end
 
     def backups
@@ -77,21 +68,13 @@ describe 'director_scheduler', type: :integration do
     after { FileUtils.rm_f(tmp_dir) }
     let(:tmp_dir) { Dir.mktmpdir('manual-backup') }
 
-    it 'backs up director logs, task logs, and database dump' do
-      expect(bosh_runner.run('backup backup.tgz', work_dir: tmp_dir)).to match(/Backup of BOSH director was put in/i)
+    it 'backs up task logs, database and blobs' do
+      runner = bosh_runner_in_work_dir(tmp_dir)
+      expect(runner.run('backup backup.tgz')).to match(/Backup of BOSH director was put in/i)
 
-      files = tar_contents("#{tmp_dir}/backup.tgz")
-      files.each { |f| expect(f.size).to be > 0 }
-      expect(files.map(&:name)).to match_array(%w(logs.tgz task_logs.tgz director_db.sql blobs.tgz))
-    end
-
-    def tar_contents(tar_path)
-      tar_entries = []
-      tar_reader = Zlib::GzipReader.open(tar_path)
-      Archive::Tar::Minitar.open(tar_reader).each do |entry|
-        tar_entries << entry if entry.file?
-      end
-      tar_entries
+      backup_file = Bosh::Spec::TarFileInspector.new("#{tmp_dir}/backup.tgz")
+      expect(backup_file.file_names).to match_array(%w(task_logs.tgz director_db.sql blobs.tgz))
+      expect(backup_file.smallest_file_size).to be > 0
     end
   end
 end

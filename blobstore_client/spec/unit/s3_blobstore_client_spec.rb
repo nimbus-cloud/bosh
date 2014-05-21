@@ -46,38 +46,51 @@ module Bosh::Blobstore
           BlobstoreError, "can't use read-only with an encryption key")
       end
 
-      context 'should be processed and passed to the AWS::S3 class' do
-        it 'should use user defined values' do
-          options = { 'bucket_name' => 'test',
-                      'access_key_id' => 'KEY',
-                      'secret_access_key' => 'SECRET',
-                      'use_ssl' => false,
-                      'ssl_verify_peer' => false,
-                      's3_multipart_threshold' => 33333,
-                      'port' => 8080,
-                      'host' => 'our.userdefined.com'
-          }
+      context 'when advanced options are provided for customization' do
+        before do
+          options.merge!(
+            'bucket_name' => 'test',
+            'access_key_id' => 'KEY',
+            'secret_access_key' => 'SECRET',
+            'use_ssl' => false,
+            'ssl_verify_peer' => false,
+            's3_multipart_threshold' => 33333,
+            'port' => 8080,
+            'host' => 'our.userdefined.com',
+            's3_force_path_style' => true,
+          )
+        end
 
-          expect(AWS::S3).to receive(:new).
-                                 with(access_key_id: 'KEY',
-                                      secret_access_key: 'SECRET',
-                                      use_ssl: false,
-                                      ssl_verify_peer: false,
-                                      s3_multipart_threshold: 33333,
-                                      s3_port: 8080,
-                                      s3_endpoint: 'our.userdefined.com',
-                                      s3_force_path_style: true).
-                                 and_return(s3)
+        it 'uses those options when building AWS::S3 client' do
+          expect(AWS::S3).to receive(:new).with(
+            access_key_id: 'KEY',
+            secret_access_key: 'SECRET',
+            use_ssl: false,
+            ssl_verify_peer: false,
+            s3_multipart_threshold: 33333,
+            s3_port: 8080,
+            s3_endpoint: 'our.userdefined.com',
+            s3_force_path_style: true,
+          )
 
           S3BlobstoreClient.new(options)
 
         end
 
-        it 'should use the default values for undefined use_ssl, port, ssl_verify_peer, s3_multipart_threshold and s3_endpoint' do
-          options = { 'bucket_name' => 'test',
-                      'access_key_id' => 'KEY',
-                      'secret_access_key' => 'SECRET',
-          }
+        it 'uses default options when building AWS::S3 client' do
+          expect(AWS::S3).to receive(:new).with(
+            access_key_id: 'KEY',
+            secret_access_key: 'SECRET',
+            use_ssl: true,
+            ssl_verify_peer: true,
+            s3_multipart_threshold: 16_777_216,
+            s3_port: 443,
+            s3_endpoint: 's3.amazonaws.com',
+            s3_force_path_style: false,
+          )
+
+          client
+        end
 
           expect(AWS::S3).to receive(:new).
                                  with(access_key_id: 'KEY',

@@ -191,12 +191,14 @@ module Bosh::Director
       def cloud
         @lock.synchronize do
           if @cloud.nil?
-            plugin = @cloud_options['plugin']
-            properties = @cloud_options['properties']
-            @cloud = Bosh::Clouds::Provider.create(plugin, properties)
+            @cloud = Bosh::Clouds::Provider.create(@cloud_options, @uuid)
           end
         end
         @cloud
+      end
+
+      def cpi_task_log
+        Config.cloud_options.fetch('properties', {}).fetch('cpi_log')
       end
 
       def logger=(logger)

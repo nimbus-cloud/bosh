@@ -16,7 +16,8 @@ logging:
 resque:
   logging:
     level: <%= resque_loglevel %>
-<% end %>    
+<% end %>
+
 redis:
   host: <%= p('redis.address') %>
   port: <%= p('redis.port') %>
@@ -93,6 +94,12 @@ blobstore:
 <% if_p('blobstore.s3_multipart_threshold') do |s3_multipart_threshold| %>
     s3_multipart_threshold: <%= s3_multipart_threshold %>
 <% end %>
+<% if_p('blobstore.ssl_verify_peer') do |ssl_verify_peer| %>
+    ssl_verify_peer: <%= ssl_verify_peer %>
+<% end %>
+<% if_p('blobstore.s3_multipart_threshold') do |s3_multipart_threshold| %>
+    s3_multipart_threshold: <%= s3_multipart_threshold %>
+<% end %>
 <% else %>
     endpoint: http://<%= p('blobstore.address') %>:<%= p('blobstore.port') %>
     user: <%= p('blobstore.director.user') %>
@@ -108,11 +115,14 @@ compiled_package_cache:
     bucket_name: <%= bucket_name %>
     access_key_id: <%= access_key_id %>
     secret_access_key: <%= secret_access_key %>
-<% if_p('compiled_package_cache.options.port') do |port| %>
+<% if_p('compiled_package_cache.options.s3_port') do |port| %>
     port: <%= port %>
 <% end %>
 <% if_p('compiled_package_cache.options.host') do |host| %>
     host: <%= host %>
+<% end %>
+<% if_p('compiled_package_cache.options.s3_force_path_style') do |s3_force_path_style| %>
+    s3_force_path_style: <%= s3_force_path_style %>
 <% end %>
 <% if_p('compiled_package_cache.options.use_ssl') do |use_ssl| %>
     use_ssl: <%= use_ssl %>
@@ -170,6 +180,12 @@ compiled_package_cache:
 <% end %>
 
 cloud:
+<% if_p('external_cpi.enabled', 'external_cpi.name') do |external_cpi_enabled, external_cpi_name| %>
+  external_cpi:
+    enabled: <%= external_cpi_enabled %>
+    cpi_path: /var/vcap/jobs/<%= external_cpi_name %>/bin/cpi
+<% end %>
+
 <% plugin = nil %>
 <% if_p('aws.access_key_id', 'aws.secret_access_key',
         'aws.default_key_name', 'aws.default_security_groups',
@@ -199,11 +215,11 @@ cloud:
 <% end %>
 <% if_p('openstack.auth_url', 'openstack.username', 'openstack.api_key',
         'openstack.tenant', 'openstack.default_key_name',
-        'openstack.default_security_groups', 'registry.address',
+        'openstack.default_security_groups','openstack.wait_resource_poll_interval', 'registry.address',
         'registry.http.port', 'registry.http.user',
         'registry.http.password') do |auth_url, username, api_key,
                                                 tenant, default_key_name,
-                                                default_security_groups, reg_address,
+                                                default_security_groups, wait_resource_poll_interval, reg_address,
                                                 reg_port, reg_user,
                                                 reg_password| %>
   plugin: openstack <% plugin = "openstack" %>
@@ -230,6 +246,7 @@ cloud:
       <% end %>
       default_key_name: <%= default_key_name %>
       default_security_groups: <%= default_security_groups %>
+      wait_resource_poll_interval: <%= wait_resource_poll_interval %>
     registry:
       endpoint: http://<%= reg_address %>:<%= reg_port %>
       user: <%= reg_user %>
@@ -309,7 +326,9 @@ cloud:
           <% end %>
 
 <% end %>
-<% raise "Could not find cloud plugin" if plugin.nil? %>
+
+<% raise "Could not find cloud plugin" if plugin.nil? && p('external_cpi.enabled', false) == false %>
+
     agent:
       ntp: [<%= p('ntp').join(", ") %>]
       blobstore:
@@ -319,19 +338,34 @@ cloud:
           bucket_name: <%= p('blobstore.bucket_name') %>
           access_key_id: <%= p(['agent.blobstore.access_key_id', 'blobstore.access_key_id']) %>
           secret_access_key: <%= p(['agent.blobstore.secret_access_key', 'blobstore.secret_access_key']) %>
-      <% if_p('blobstore.use_ssl') do |use_ssl| %>
+
+      <% port = p(['agent.blobstore.s3_port', 'blobstore.s3_port'], nil) %>
+      <% unless port.nil? %>
+          port: <%= port  %>
+      <% end %>
+
+      <% host = p(['agent.blobstore.host', 'blobstore.host'], nil) %>
+      <% unless host.nil? %>
+          host: <%= host %>
+      <% end %>
+
+      <% use_ssl = p(['agent.blobstore.use_ssl', 'blobstore.use_ssl'], nil) %>
+      <% unless use_ssl.nil? %>
           use_ssl: <%= use_ssl %>
       <% end %>
-      <% if_p('blobstore.port') do |port| %>
-          port: <%= p('blobstore.port') %>
-      <% end %>
-      <% if_p('blobstore.host') do |port| %>
-          host: <%= p('blobstore.host') %>
-      <% end %>
-      <% if_p('blobstore.ssl_verify_peer') do |ssl_verify_peer| %>
+
+      <% ssl_verify_peer = p(['agent.blobstore.ssl_verify_peer', 'blobstore.ssl_verify_peer'], nil) %>
+      <% unless ssl_verify_peer.nil? %>
           ssl_verify_peer: <%= ssl_verify_peer %>
       <% end %>
-      <% if_p('blobstore.s3_multipart_threshold') do |s3_multipart_threshold| %>
+
+      <% s3_force_path_style = p(['agent.blobstore.s3_force_path_style', 'blobstore.s3_force_path_style'], nil) %>
+      <% unless s3_force_path_style.nil? %>
+          s3_force_path_style: <%= s3_force_path_style %>
+      <% end %>
+
+      <% s3_multipart_threshold = p(['agent.blobstore.s3_multipart_threshold', 'blobstore.s3_multipart_threshold'], nil) %>
+      <% unless s3_multipart_threshold.nil? %>
           s3_multipart_threshold: <%= s3_multipart_threshold %>
       <% end %>
       <% else %>

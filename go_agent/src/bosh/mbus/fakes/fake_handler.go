@@ -17,7 +17,9 @@ type FakeHandler struct {
 
 	// Keeps list of all receivd health manager requests
 	hmRequestsLock sync.Mutex
-	HMRequests     []HMRequest
+	hmRequests     []HMRequest
+
+	RegisteredAdditionalHandlerFunc boshhandler.HandlerFunc
 
 	SendToHealthManagerCallBack func(HMRequest)
 	SendToHealthManagerErr      error
@@ -29,7 +31,7 @@ type HMRequest struct {
 }
 
 func NewFakeHandler() *FakeHandler {
-	return &FakeHandler{HMRequests: []HMRequest{}}
+	return &FakeHandler{hmRequests: []HMRequest{}}
 }
 
 func (h *FakeHandler) Run(handlerFunc boshhandler.HandlerFunc) error {
@@ -58,16 +60,27 @@ func (h *FakeHandler) Stop() {
 	h.ReceivedStop = true
 }
 
+func (h *FakeHandler) RegisterAdditionalHandlerFunc(handlerFunc boshhandler.HandlerFunc) {
+	h.RegisteredAdditionalHandlerFunc = handlerFunc
+}
+
 func (h *FakeHandler) SendToHealthManager(topic string, payload interface{}) error {
 	h.hmRequestsLock.Lock()
 	defer h.hmRequestsLock.Unlock()
 
 	hmRequest := HMRequest{topic, payload}
-	h.HMRequests = append(h.HMRequests, hmRequest)
+	h.hmRequests = append(h.hmRequests, hmRequest)
 
 	if h.SendToHealthManagerCallBack != nil {
 		h.SendToHealthManagerCallBack(hmRequest)
 	}
 
 	return h.SendToHealthManagerErr
+}
+
+func (h *FakeHandler) HMRequests() []HMRequest {
+	h.hmRequestsLock.Lock()
+	defer h.hmRequestsLock.Unlock()
+
+	return h.hmRequests
 }

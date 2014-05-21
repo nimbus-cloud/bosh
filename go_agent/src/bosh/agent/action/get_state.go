@@ -80,9 +80,23 @@ func (a GetStateAction) Run(filters ...string) (GetStateV1ApplySpec, error) {
 		a.ntpService.GetInfo(),
 	}
 
+	if value.NetworkSpecs == nil {
+		value.NetworkSpecs = map[string]boshas.NetworkSpec{}
+	}
+	if value.ResourcePoolSpecs == nil {
+		value.ResourcePoolSpecs = map[string]interface{}{}
+	}
+	if value.PackageSpecs == nil {
+		value.PackageSpecs = map[string]boshas.PackageSpec{}
+	}
+
 	return value, nil
 }
 
 func (a GetStateAction) Resume() (interface{}, error) {
 	return nil, errors.New("not supported")
+}
+
+func (a GetStateAction) Cancel() error {
+	return errors.New("not supported")
 }

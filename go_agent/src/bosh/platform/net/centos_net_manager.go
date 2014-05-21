@@ -8,46 +8,46 @@ import (
 	"time"
 
 	bosherr "bosh/errors"
+	boshlog "bosh/logger"
 	boshsettings "bosh/settings"
 	boshsys "bosh/system"
 )
 
+const centosNetManagerLogTag = "centosNetManager"
+
 type centosNetManager struct {
-	arpWaitInterval time.Duration
-	cmdRunner       boshsys.CmdRunner
+	DefaultNetworkResolver
+
 	fs              boshsys.FileSystem
+	cmdRunner       boshsys.CmdRunner
+	routesSearcher  RoutesSearcher
+	arpWaitInterval time.Duration
+	logger          boshlog.Logger
 }
 
 func NewCentosNetManager(
 	fs boshsys.FileSystem,
 	cmdRunner boshsys.CmdRunner,
+	defaultNetworkResolver DefaultNetworkResolver,
 	arpWaitInterval time.Duration,
-) (net centosNetManager) {
-	net.arpWaitInterval = arpWaitInterval
-	net.cmdRunner = cmdRunner
-	net.fs = fs
-	return
+	logger boshlog.Logger,
+) centosNetManager {
+	return centosNetManager{
+		DefaultNetworkResolver: defaultNetworkResolver,
+		fs:              fs,
+		cmdRunner:       cmdRunner,
+		arpWaitInterval: arpWaitInterval,
+		logger:          logger,
+	}
 }
 
 func (net centosNetManager) getDNSServers(networks boshsettings.Networks) []string {
-	var dnsServers []string
-	dnsNetwork, found := networks.DefaultNetworkFor("dns")
-	if found {
-		for i := len(dnsNetwork.DNS) - 1; i >= 0; i-- {
-			dnsServers = append(dnsServers, dnsNetwork.DNS[i])
-		}
-	}
-	return dnsServers
+	dnsNetwork, _ := networks.DefaultNetworkFor("dns")
+	return dnsNetwork.DNS
 }
 
 func (net centosNetManager) SetupDhcp(networks boshsettings.Networks) error {
-	dnsServers := []string{}
-	dnsNetwork, found := networks.DefaultNetworkFor("dns")
-	if found {
-		for i := len(dnsNetwork.DNS) - 1; i >= 0; i-- {
-			dnsServers = append(dnsServers, dnsNetwork.DNS[i])
-		}
-	}
+	dnsNetwork, _ := networks.DefaultNetworkFor("dns")
 
 	type dhcpConfigArg struct {
 		DNSServers []string
@@ -56,7 +56,7 @@ func (net centosNetManager) SetupDhcp(networks boshsettings.Networks) error {
 	buffer := bytes.NewBuffer([]byte{})
 	t := template.Must(template.New("dhcp-config").Parse(centosDHCPConfigTemplate))
 
-	err := t.Execute(buffer, dhcpConfigArg{dnsServers})
+	err := t.Execute(buffer, dhcpConfigArg{dnsNetwork.DNS})
 	if err != nil {
 		return bosherr.WrapError(err, "Generating config from template")
 	}
@@ -67,8 +67,7 @@ func (net centosNetManager) SetupDhcp(networks boshsettings.Networks) error {
 	}
 
 	if written {
-		// Ignore errors here, just run the commands
-		net.cmdRunner.RunCommand("service", "network", "restart")
+		net.restartNetwork()
 	}
 
 	return err
@@ -89,7 +88,7 @@ request subnet-mask, broadcast-address, time-offset, routers,
 {{ range .DNSServers }}prepend domain-name-servers {{ . }};
 {{ end }}`
 
-func (net centosNetManager) SetupManualNetworking(networks boshsettings.Networks, errChan chan error) error {
+func (net centosNetManager) SetupManualNetworking(networks boshsettings.Networks, errCh chan error) error {
 	modifiedNetworks, err := net.writeIfcfgs(networks)
 	if err != nil {
 		return bosherr.WrapError(err, "Writing network interfaces")
@@ -102,30 +101,34 @@ func (net centosNetManager) SetupManualNetworking(networks boshsettings.Networks
 		return bosherr.WrapError(err, "Writing resolv.conf")
 	}
 
-	go net.gratuitiousArp(modifiedNetworks, errChan)
+	go net.gratuitiousArp(modifiedNetworks, errCh)
 
 	return nil
 }
 
-func (net centosNetManager) gratuitiousArp(networks []CustomNetwork, errChan chan error) {
+func (net centosNetManager) gratuitiousArp(networks []customNetwork, errCh chan error) {
 	for i := 0; i < 6; i++ {
 		for _, network := range networks {
 			for !net.fs.FileExists(filepath.Join("/sys/class/net", network.Interface)) {
 				time.Sleep(100 * time.Millisecond)
 			}
 
-			net.cmdRunner.RunCommand("arping", "-c", "1", "-U", "-I", network.Interface, network.IP)
+			_, _, _, err := net.cmdRunner.RunCommand("arping", "-c", "1", "-U", "-I", network.Interface, network.IP)
+			if err != nil {
+				net.logger.Info(centosNetManagerLogTag, "Ignoring arping failure: %#v", err)
+			}
+
 			time.Sleep(net.arpWaitInterval)
 		}
 	}
 
-	if errChan != nil {
-		errChan <- nil
+	if errCh != nil {
+		errCh <- nil
 	}
 }
 
-func (net centosNetManager) writeIfcfgs(networks boshsettings.Networks) ([]CustomNetwork, error) {
-	var modifiedNetworks []CustomNetwork
+func (net centosNetManager) writeIfcfgs(networks boshsettings.Networks) ([]customNetwork, error) {
+	var modifiedNetworks []customNetwork
 
 	macAddresses, err := net.detectMacAddresses()
 	if err != nil {
@@ -139,7 +142,7 @@ func (net centosNetManager) writeIfcfgs(networks boshsettings.Networks) ([]Custo
 			return modifiedNetworks, bosherr.WrapError(err, "Calculating network and broadcast")
 		}
 
-		newNet := CustomNetwork{
+		newNet := customNetwork{
 			aNet,
 			macAddresses[aNet.Mac],
 			network,
@@ -221,5 +224,8 @@ func (net centosNetManager) detectMacAddresses() (map[string]string, error) {
 }
 
 func (net centosNetManager) restartNetwork() {
-	net.cmdRunner.RunCommand("service", "network", "restart")
+	_, _, _, err := net.cmdRunner.RunCommand("service", "network", "restart")
+	if err != nil {
+		net.logger.Info(centosNetManagerLogTag, "Ignoring network restart failure: %#v", err)
+	}
 }

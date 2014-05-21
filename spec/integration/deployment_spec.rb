@@ -36,11 +36,11 @@ describe 'deployment integrations', type: :integration do
 
   it 'spawns a job and then successfully cancel it' do
     deploy_result = deploy_simple(no_track: true)
-    task_id = get_task_id(deploy_result, 'running')
+    task_id = Bosh::Spec::OutputParser.new(deploy_result).task_id('running')
 
-    cancel_output = bosh_runner.run("cancel task #{task_id}")
-    expect($?).to be_success
-    expect(cancel_output).to match /Task #{task_id} is getting canceled/
+    output, exit_code = bosh_runner.run("cancel task #{task_id}", return_exit_code: true)
+    expect(output).to match(/Task #{task_id} is getting canceled/)
+    expect(exit_code).to eq(0)
 
     error_event = events(task_id).last['error']
     expect(error_event['code']).to eq(10001)
@@ -48,6 +48,7 @@ describe 'deployment integrations', type: :integration do
   end
 
   it 'does not finish a deployment if job update fails' do
+    # Ruby agent does not implement fail_job functionality for integration testing
     pending if current_sandbox.agent_type == "ruby"
 
     deploy_simple
@@ -63,7 +64,7 @@ describe 'deployment integrations', type: :integration do
     deploy_output, exit_code = deploy(failure_expected: true, return_exit_code: true)
     expect(exit_code).to_not eq(0)
 
-    task_id = get_task_id(deploy_output, 'error')
+    task_id = Bosh::Spec::OutputParser.new(deploy_output).task_id('error')
     task_events = events(task_id)
 
     failing_job_event = task_events[-2]
@@ -100,11 +101,5 @@ describe 'deployment integrations', type: :integration do
       end
     end
     event_list
-  end
-
-  def get_task_id(output, state = 'done')
-    match = output.match(/Task (\d+) #{state}/)
-    expect(match).to_not be(nil)
-    match[1]
   end
 end

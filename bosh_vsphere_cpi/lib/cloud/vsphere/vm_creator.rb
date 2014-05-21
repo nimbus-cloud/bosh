@@ -2,7 +2,7 @@ require 'ruby_vim_sdk'
 
 module VSphereCloud
   class VmCreator
-    def initialize(memory, disk, cpu, placer, client, logger, cpi)
+    def initialize(memory, disk, cpu, placer, client, logger, cpi, agent_env, file_provider)
       @placer = placer
       @client = client
       @logger = logger
@@ -10,16 +10,13 @@ module VSphereCloud
       @memory = memory
       @disk = disk
       @cpu = cpu
+      @agent_env = agent_env
+      @file_provider = file_provider
 
       @logger.debug("VM creator initialized with memory: #{@memory}, disk: #{@disk}, cpu: #{@cpu}, placer: #{@placer}")
     end
 
     def create(agent_id, stemcell_cid, networks, disk_cids, environment)
-      # Make sure number of cores is a power of 2. kb.vmware.com/kb/2003484
-      if @cpu & @cpu - 1 != 0
-        raise "Number of vCPUs: #{@cpu} is not a power of 2."
-      end
-
       stemcell_vm = @cpi.stemcell_vm(stemcell_cid)
       raise "Could not find stemcell: #{stemcell_cid}" if stemcell_vm.nil?
 
@@ -80,7 +77,7 @@ module VSphereCloud
       vm = @client.wait_for_task(task)
 
       begin
-        @cpi.upload_file(cluster.datacenter.name, datastore.name, "#{name}/env.iso", '')
+        @file_provider.upload_file(cluster.datacenter.name, datastore.name, "#{name}/env.iso", '')
 
         vm_properties = @client.get_properties(vm, VimSdk::Vim::VirtualMachine, ['config.hardware.device'], ensure_all: true)
         devices = vm_properties['config.hardware.device']
@@ -89,7 +86,7 @@ module VSphereCloud
         config = VimSdk::Vim::Vm::ConfigSpec.new
         config.device_change = []
         file_name = "[#{datastore.name}] #{name}/env.iso"
-        cdrom_change = @cpi.configure_env_cdrom(datastore.mob, devices, file_name)
+        cdrom_change = @agent_env.configure_env_cdrom(datastore.mob, devices, file_name)
         config.device_change << cdrom_change
         @client.reconfig_vm(vm, config)
 
@@ -101,7 +98,7 @@ module VSphereCloud
 
         location =
           @cpi.get_vm_location(vm, datacenter: cluster.datacenter.name, datastore: datastore.name, vm: name)
-        @cpi.set_agent_env(vm, location, env)
+        @agent_env.set_env(vm, location, env)
 
         @logger.info("Powering on VM: #{vm} (#{name})")
         @client.power_on_vm(cluster.datacenter.mob, vm)

@@ -32,19 +32,18 @@ func NewDummyPlatform(
 	cmdRunner boshsys.CmdRunner,
 	dirProvider boshdirs.DirectoriesProvider,
 	diskManager boshdisk.Manager,
-) (platform *dummyPlatform) {
-
-	platform = &dummyPlatform{
+	logger boshlog.Logger,
+) *dummyPlatform {
+	return &dummyPlatform{
 		fs:            fs,
 		cmdRunner:     cmdRunner,
 		collector:     collector,
 		compressor:    boshcmd.NewTarballCompressor(cmdRunner, fs),
-		copier:        boshcmd.NewCpCopier(cmdRunner, fs),
+		copier:        boshcmd.NewCpCopier(cmdRunner, fs, logger),
 		dirProvider:   dirProvider,
 		vitalsService: boshvitals.NewService(collector, dirProvider),
 		diskManager:   diskManager,
 	}
-	return
 }
 
 func (p dummyPlatform) GetFs() (fs boshsys.FileSystem) {
@@ -53,10 +52,6 @@ func (p dummyPlatform) GetFs() (fs boshsys.FileSystem) {
 
 func (p dummyPlatform) GetRunner() (runner boshsys.CmdRunner) {
 	return p.cmdRunner
-}
-
-func (p dummyPlatform) GetStatsCollector() (collector boshstats.StatsCollector) {
-	return p.collector
 }
 
 func (p dummyPlatform) GetCompressor() (compressor boshcmd.Compressor) {
@@ -132,8 +127,12 @@ func (p dummyPlatform) SetupEphemeralDiskWithPath(devicePath string) (err error)
 	return
 }
 
-func (p dummyPlatform) SetupTmpDir() (err error) {
-	return
+func (p dummyPlatform) SetupDataDir() error {
+	return nil
+}
+
+func (p dummyPlatform) SetupTmpDir() error {
+	return nil
 }
 
 func (p dummyPlatform) MountPersistentDisk(devicePath, mountPoint string) (err error) {
@@ -160,7 +159,7 @@ func (p dummyPlatform) IsMountPoint(path string) (result bool, err error) {
 	return
 }
 
-func (p dummyPlatform) IsDevicePathMounted(path string) (result bool, err error) {
+func (p dummyPlatform) IsPersistentDiskMounted(path string) (result bool, err error) {
 	return
 }
 
@@ -176,6 +175,6 @@ func (p dummyPlatform) GetMonitCredentials() (username, password string, err err
 	return
 }
 
-func (p dummyPlatform) GetDiskManager() (diskManager boshdisk.Manager) {
-	return
+func (p dummyPlatform) GetDefaultNetwork() (boshsettings.Network, error) {
+	return boshsettings.Network{}, nil
 }

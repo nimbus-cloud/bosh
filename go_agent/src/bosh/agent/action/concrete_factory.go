@@ -8,7 +8,6 @@ import (
 	boshtask "bosh/agent/task"
 	boshblob "bosh/blobstore"
 	bosherr "bosh/errors"
-	boshinfrastructure "bosh/infrastructure"
 	boshjobsuper "bosh/jobsupervisor"
 	boshlog "bosh/logger"
 	boshnotif "bosh/notification"
@@ -24,7 +23,6 @@ type concreteFactory struct {
 func NewFactory(
 	settings boshsettings.Service,
 	platform boshplatform.Platform,
-	infrastructure boshinfrastructure.Infrastructure,
 	blobstore boshblob.Blobstore,
 	taskService boshtask.Service,
 	notifier boshnotif.Notifier,
@@ -44,12 +42,13 @@ func NewFactory(
 	factory = concreteFactory{
 		availableActions: map[string]Action{
 			// Task management
-			"ping":     NewPing(),
-			"get_task": NewGetTask(taskService),
+			"ping":        NewPing(),
+			"get_task":    NewGetTask(taskService),
+			"cancel_task": NewCancelTask(taskService),
 
 			// VM admin
 			"ssh":        NewSsh(settings, platform, dirProvider),
-			"fetch_logs": NewLogs(compressor, copier, blobstore, dirProvider),
+			"fetch_logs": NewFetchLogs(compressor, copier, blobstore, dirProvider),
 
 			// Job management
 			"prepare":    NewPrepare(applier),
@@ -58,7 +57,7 @@ func NewFactory(
 			"stop":       NewStop(jobSupervisor),
 			"drain":      NewDrain(notifier, specService, drainScriptProvider, jobSupervisor),
 			"get_state":  NewGetState(settings, specService, jobSupervisor, vitalsService, ntpService),
-			"run_errand": NewRunErrand(specService, dirProvider.JobsDir(), platform.GetRunner()),
+			"run_errand": NewRunErrand(specService, dirProvider.JobsDir(), platform.GetRunner(), logger),
 
 			// Compilation
 			"compile_package":    NewCompilePackage(compiler),
@@ -67,7 +66,7 @@ func NewFactory(
 			// Disk management
 			"list_disk":    NewListDisk(settings, platform, logger),
 			"migrate_disk": NewMigrateDisk(platform, dirProvider),
-			"mount_disk":   NewMountDisk(settings, infrastructure, platform, dirProvider),
+			"mount_disk":   NewMountDisk(settings, platform, platform, dirProvider),
 			"unmount_disk": NewUnmountDisk(settings, platform),
 
 			// Networking

@@ -3,8 +3,6 @@ package platform
 import (
 	boshdpresolv "bosh/infrastructure/devicepathresolver"
 	boshcmd "bosh/platform/commands"
-	boshdisk "bosh/platform/disk"
-	boshstats "bosh/platform/stats"
 	boshvitals "bosh/platform/vitals"
 	boshsettings "bosh/settings"
 	boshdir "bosh/settings/directories"
@@ -14,13 +12,10 @@ import (
 type Platform interface {
 	GetFs() (fs boshsys.FileSystem)
 	GetRunner() (runner boshsys.CmdRunner)
-	GetStatsCollector() (statsCollector boshstats.StatsCollector)
 	GetCompressor() (compressor boshcmd.Compressor)
 	GetCopier() (copier boshcmd.Copier)
 	GetDirProvider() (dirProvider boshdir.DirectoriesProvider)
 	GetVitalsService() (service boshvitals.Service)
-	GetMonitCredentials() (username, password string, err error)
-	GetDiskManager() (diskManager boshdisk.Manager)
 
 	GetDevicePathResolver() (devicePathResolver boshdpresolv.DevicePathResolver)
 	SetDevicePathResolver(devicePathResolver boshdpresolv.DevicePathResolver) (err error)
@@ -39,18 +34,24 @@ type Platform interface {
 	SetupLogrotate(groupName, basePath, size string) (err error)
 	SetTimeWithNtpServers(servers []string) (err error)
 	SetupEphemeralDiskWithPath(devicePath string) (err error)
+	SetupDataDir() (err error)
 	SetupTmpDir() (err error)
 	SetupMonitUser() (err error)
+	StartMonit() (err error)
 	SetupRuntimeConfiguration() (err error)
 
 	// Disk management
+	MountPersistentDisk(devicePath, mountPoint string) error
 	UnmountPersistentDisk(devicePath string) (didUnmount bool, err error)
 	MigratePersistentDisk(fromMountPoint, toMountPoint string) (err error)
 	NormalizeDiskPath(devicePath string) (realPath string, found bool)
 	IsMountPoint(path string) (result bool, err error)
-	IsDevicePathMounted(path string) (result bool, err error)
+	IsPersistentDiskMounted(path string) (result bool, err error)
 
 	GetFileContentsFromCDROM(filePath string) (contents []byte, err error)
 
-	StartMonit() (err error)
+	GetDefaultNetwork() (boshsettings.Network, error)
+
+	// Additional monit management
+	GetMonitCredentials() (username, password string, err error)
 }

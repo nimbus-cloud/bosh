@@ -15,17 +15,31 @@ import (
 	boshsys "bosh/system"
 )
 
+const monitJobSupervisorLogTag = "monitJobSupervisor"
+
 type monitJobSupervisor struct {
-	fs                             boshsys.FileSystem
-	runner                         boshsys.CmdRunner
-	client                         boshmonit.Client
-	logger                         boshlog.Logger
-	dirProvider                    boshdir.DirectoriesProvider
-	jobFailuresServerPort          int
-	delayBetweenReloadCheckRetries time.Duration
+	fs          boshsys.FileSystem
+	runner      boshsys.CmdRunner
+	client      boshmonit.Client
+	logger      boshlog.Logger
+	dirProvider boshdir.DirectoriesProvider
+
+	jobFailuresServerPort int
+
+	reloadOptions MonitReloadOptions
 }
 
-const MonitTag = "Monit Job Supervisor"
+type MonitReloadOptions struct {
+	// Number of times `monit reload` will be executed
+	MaxTries int
+
+	// Number of times monit incarnation will be checked
+	// for difference after executing `monit reload`
+	MaxCheckTries int
+
+	// Length of time between checking for incarnation difference
+	DelayBetweenCheckTries time.Duration
+}
 
 func NewMonitJobSupervisor(
 	fs boshsys.FileSystem,
@@ -34,84 +48,99 @@ func NewMonitJobSupervisor(
 	logger boshlog.Logger,
 	dirProvider boshdir.DirectoriesProvider,
 	jobFailuresServerPort int,
-	delayBetweenReloadCheckRetries time.Duration,
+	reloadOptions MonitReloadOptions,
 ) (m monitJobSupervisor) {
 	return monitJobSupervisor{
-		fs:                             fs,
-		runner:                         runner,
-		client:                         client,
-		logger:                         logger,
-		dirProvider:                    dirProvider,
-		jobFailuresServerPort:          jobFailuresServerPort,
-		delayBetweenReloadCheckRetries: delayBetweenReloadCheckRetries,
+		fs:          fs,
+		runner:      runner,
+		client:      client,
+		logger:      logger,
+		dirProvider: dirProvider,
+
+		jobFailuresServerPort: jobFailuresServerPort,
+
+		reloadOptions: reloadOptions,
 	}
 }
 
-func (m monitJobSupervisor) Reload() (err error) {
+func (m monitJobSupervisor) Reload() error {
+	var currentIncarnation int
+
 	oldIncarnation, err := m.getIncarnation()
 	if err != nil {
-		err = bosherr.WrapError(err, "Getting monit incarnation")
-		return err
+		return bosherr.WrapError(err, "Getting monit incarnation")
 	}
 
-	// Exit code or output cannot be trusted
-	m.runner.RunCommand("monit", "reload")
-
-	for attempt := 1; attempt < 60; attempt++ {
-		err = nil
-		currentIncarnation, err := m.getIncarnation()
+	// Monit process could be started in the same second as `monit reload` runs
+	// so it's ideal for MaxCheckTries * DelayBetweenCheckTries to be greater than 1 sec
+	// because monit incarnation id is just a timestamp with 1 sec resolution.
+	for reloadI := 0; reloadI < m.reloadOptions.MaxTries; reloadI++ {
+		// Exit code or output cannot be trusted
+		_, _, _, err := m.runner.RunCommand("monit", "reload")
 		if err != nil {
-			err = bosherr.WrapError(err, "Getting monit incarnation")
-			return err
+			m.logger.Debug(monitJobSupervisorLogTag, "Failed to reload monit %s", err.Error())
 		}
 
-		if oldIncarnation < currentIncarnation {
-			return nil
-		}
+		for checkI := 0; checkI < m.reloadOptions.MaxCheckTries; checkI++ {
+			currentIncarnation, err = m.getIncarnation()
+			if err != nil {
+				return bosherr.WrapError(err, "Getting monit incarnation")
+			}
 
-		time.Sleep(m.delayBetweenReloadCheckRetries)
+			// Incarnation id can decrease or increase because
+			// monit uses time(...) and system time can be changed
+			if oldIncarnation != currentIncarnation {
+				return nil
+			}
+
+			m.logger.Debug(
+				monitJobSupervisorLogTag,
+				"Waiting for monit to reload: before=%d after=%d",
+				oldIncarnation, currentIncarnation,
+			)
+
+			time.Sleep(m.reloadOptions.DelayBetweenCheckTries)
+		}
 	}
 
-	err = bosherr.New("Failed to reload monit")
-	return
+	return bosherr.New(
+		"Failed to reload monit: before=%d after=%d",
+		oldIncarnation, currentIncarnation,
+	)
 }
 
-func (m monitJobSupervisor) Start() (err error) {
+func (m monitJobSupervisor) Start() error {
 	services, err := m.client.ServicesInGroup("vcap")
 	if err != nil {
-		err = bosherr.WrapError(err, "Getting vcap services")
-		return
+		return bosherr.WrapError(err, "Getting vcap services")
 	}
 
 	for _, service := range services {
 		err = m.client.StartService(service)
 		if err != nil {
-			err = bosherr.WrapError(err, "Starting service %s", service)
-			return
+			return bosherr.WrapError(err, "Starting service %s", service)
 		}
-		m.logger.Debug(MonitTag, "Starting service %s", service)
+		m.logger.Debug(monitJobSupervisorLogTag, "Starting service %s", service)
 	}
 
-	return
+	return nil
 }
 
-func (m monitJobSupervisor) Stop() (err error) {
+func (m monitJobSupervisor) Stop() error {
 	services, err := m.client.ServicesInGroup("vcap")
 	if err != nil {
-		err = bosherr.WrapError(err, "Getting vcap services")
-		return
+		return bosherr.WrapError(err, "Getting vcap services")
 	}
 
 	for _, service := range services {
 		err = m.client.StopService(service)
 		if err != nil {
-			err = bosherr.WrapError(err, "Stopping service %s", service)
-			return
+			return bosherr.WrapError(err, "Stopping service %s", service)
 		}
-		m.logger.Debug(MonitTag, "Stopping service %s", service)
+		m.logger.Debug(monitJobSupervisorLogTag, "Stopping service %s", service)
 	}
 
-	return
+	return nil
 }
 
 func (m monitJobSupervisor) Unmonitor() error {
@@ -125,7 +154,7 @@ func (m monitJobSupervisor) Unmonitor() error {
 		if err != nil {
 			return bosherr.WrapError(err, "Unmonitoring service %s", service)
 		}
-		m.logger.Debug(MonitTag, "Unmonitoring service %s", service)
+		m.logger.Debug(monitJobSupervisorLogTag, "Unmonitoring service %s", service)
 	}
 
 	return nil
@@ -147,6 +176,7 @@ func (m monitJobSupervisor) Status() (status string) {
 			status = "failing"
 		}
 	}
+
 	return
 }
 

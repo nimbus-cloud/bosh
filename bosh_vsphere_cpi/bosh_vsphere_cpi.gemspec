@@ -19,12 +19,15 @@ Gem::Specification.new do |s|
   s.require_path = 'lib'
   s.bindir       = 'bin'
 
-  s.executables = 'vsphere_cpi_console'
+  s.executables = %w(vsphere_cpi vsphere_cpi_console)
 
   s.add_dependency 'bosh_common', "~>#{version}"
   s.add_dependency 'bosh_cpi',    "~>#{version}"
   s.add_dependency 'membrane',    '~>0.0.2'
   s.add_dependency 'sequel',      '~>3.43.0'
-
-  s.add_development_dependency 'rspec'
+  s.add_dependency 'pg',          '~>0.15.1'
+  s.add_dependency 'mysql2',      '~>0.3.11'
+  s.add_dependency 'builder',     '~>3.1.4'
+  s.add_dependency 'nokogiri',    '~>1.5.10'
+  s.add_dependency 'httpclient',  '~>2.2.4'
 end

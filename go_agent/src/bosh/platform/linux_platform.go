@@ -1,6 +1,15 @@
 package platform
 
 import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"text/template"
+	"time"
+
 	bosherr "bosh/errors"
 	boshdpresolv "bosh/infrastructure/devicepathresolver"
 	boshlog "bosh/logger"
@@ -14,15 +23,20 @@ import (
 	boshdir "bosh/settings/directories"
 	boshdirs "bosh/settings/directories"
 	boshsys "bosh/system"
-	"bytes"
-	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-	"text/template"
-	"time"
 )
+
+type LinuxOptions struct {
+	// When set to true loop back device
+	// is not going to be overlayed over /tmp to limit /tmp dir size
+	UseDefaultTmpDir bool
+
+	// When set to true persistent disk will be assumed to be pre-formatted;
+	// otherwise agent will partition and format it right before mounting
+	UsePreformattedPersistentDisk bool
+
+	// When set to true persistent disk will be mounted as a bind-mount
+	BindMountPersistentDisk bool
+}
 
 type linux struct {
 	fs                 boshsys.FileSystem
@@ -37,6 +51,7 @@ type linux struct {
 	netManager         boshnet.NetManager
 	diskScanDuration   time.Duration
 	devicePathResolver boshdpresolv.DevicePathResolver
+	options            LinuxOptions
 	logger             boshlog.Logger
 }
 
@@ -52,6 +67,7 @@ func NewLinuxPlatform(
 	diskManager boshdisk.Manager,
 	netManager boshnet.NetManager,
 	diskScanDuration time.Duration,
+	options LinuxOptions,
 	logger boshlog.Logger,
 ) (platform *linux) {
 	platform = &linux{
@@ -66,6 +82,7 @@ func NewLinuxPlatform(
 		diskManager:      diskManager,
 		netManager:       netManager,
 		diskScanDuration: diskScanDuration,
+		options:          options,
 		logger:           logger,
 	}
 	return
@@ -77,10 +94,6 @@ func (p linux) GetFs() (fs boshsys.FileSystem) {
 
 func (p linux) GetRunner() (runner boshsys.CmdRunner) {
 	return p.cmdRunner
-}
-
-func (p linux) GetStatsCollector() (statsCollector boshstats.StatsCollector) {
-	return p.collector
 }
 
 func (p linux) GetCompressor() (runner boshcmd.Compressor) {
@@ -328,14 +341,22 @@ func (p linux) SetTimeWithNtpServers(servers []string) (err error) {
 	return
 }
 
-func (p linux) SetupEphemeralDiskWithPath(realPath string) (err error) {
+func (p linux) SetupEphemeralDiskWithPath(realPath string) error {
 	mountPoint := p.dirProvider.DataDir()
-	p.fs.MkdirAll(mountPoint, os.FileMode(0750))
+
+	err := p.fs.MkdirAll(mountPoint, os.FileMode(0750))
+	if err != nil {
+		return bosherr.WrapError(err, "Creating data dir")
+	}
+
+	if realPath == "" {
+		p.logger.Debug("platform", "Using root disk as ephemeral disk")
+		return nil
+	}
 
 	swapSize, linuxSize, err := p.calculateEphemeralDiskPartitionSizes(realPath)
 	if err != nil {
-		err = bosherr.WrapError(err, "Calculating partition sizes")
-		return
+		return bosherr.WrapError(err, "Calculating partition sizes")
 	}
 
 	partitions := []boshdisk.Partition{
@@ -345,67 +366,67 @@ func (p linux) SetupEphemeralDiskWithPath(realPath string) (err error) {
 
 	err = p.diskManager.GetPartitioner().Partition(realPath, partitions)
 	if err != nil {
-		err = bosherr.WrapError(err, "Partitioning disk")
-		return
+		return bosherr.WrapError(err, "Partitioning disk")
 	}
 
 	swapPartitionPath := realPath + "1"
 	dataPartitionPath := realPath + "2"
 	err = p.diskManager.GetFormatter().Format(swapPartitionPath, boshdisk.FileSystemSwap)
 	if err != nil {
-		err = bosherr.WrapError(err, "Formatting swap")
-		return
+		return bosherr.WrapError(err, "Formatting swap")
 	}
 
 	err = p.diskManager.GetFormatter().Format(dataPartitionPath, boshdisk.FileSystemExt4)
 	if err != nil {
-		err = bosherr.WrapError(err, "Formatting data partition with ext4")
-		return
+		return bosherr.WrapError(err, "Formatting data partition with ext4")
 	}
 
 	err = p.diskManager.GetMounter().SwapOn(swapPartitionPath)
 	if err != nil {
-		err = bosherr.WrapError(err, "Mounting swap")
-		return
+		return bosherr.WrapError(err, "Mounting swap")
 	}
 
 	err = p.diskManager.GetMounter().Mount(dataPartitionPath, mountPoint)
 	if err != nil {
-		err = bosherr.WrapError(err, "Mounting data partition")
-		return
+		return bosherr.WrapError(err, "Mounting data partition")
 	}
 
-	sysdir := filepath.Join(mountPoint, "sys")
-	dir := filepath.Join(sysdir, "log")
-	err = p.fs.MkdirAll(dir, os.FileMode(0750))
+	return nil
+}
+
+func (p linux) SetupDataDir() error {
+	dataDir := p.dirProvider.DataDir()
+
+	sysDir := filepath.Join(dataDir, "sys")
+
+	logDir := filepath.Join(sysDir, "log")
+	err := p.fs.MkdirAll(logDir, os.FileMode(0750))
 	if err != nil {
-		err = bosherr.WrapError(err, "Making %s dir", dir)
-		return
-	}
-	_, _, _, err = p.cmdRunner.RunCommand("chown", "root:vcap", sysdir)
-	if err != nil {
-		err = bosherr.WrapError(err, "chown %s", sysdir)
-		return
-	}
-	_, _, _, err = p.cmdRunner.RunCommand("chown", "root:vcap", dir)
-	if err != nil {
-		err = bosherr.WrapError(err, "chown %s", dir)
-		return
+		return bosherr.WrapError(err, "Making %s dir", logDir)
 	}
 
-	dir = filepath.Join(sysdir, "run")
-	err = p.fs.MkdirAll(dir, os.FileMode(0750))
+	_, _, _, err = p.cmdRunner.RunCommand("chown", "root:vcap", sysDir)
 	if err != nil {
-		err = bosherr.WrapError(err, "Making %s dir", dir)
-		return
+		return bosherr.WrapError(err, "chown %s", sysDir)
 	}
 
-	_, _, _, err = p.cmdRunner.RunCommand("chown", "root:vcap", dir)
+	_, _, _, err = p.cmdRunner.RunCommand("chown", "root:vcap", logDir)
 	if err != nil {
-		err = bosherr.WrapError(err, "chown %s", dir)
-		return
+		return bosherr.WrapError(err, "chown %s", logDir)
 	}
-	return
+
+	runDir := filepath.Join(sysDir, "run")
+	err = p.fs.MkdirAll(runDir, os.FileMode(0750))
+	if err != nil {
+		return bosherr.WrapError(err, "Making %s dir", runDir)
+	}
+
+	_, _, _, err = p.cmdRunner.RunCommand("chown", "root:vcap", runDir)
+	if err != nil {
+		return bosherr.WrapError(err, "chown %s", runDir)
+	}
+
+	return nil
 }
 
 func (p linux) SetupTmpDir() error {
@@ -433,6 +454,10 @@ func (p linux) SetupTmpDir() error {
 	_, _, _, err = p.cmdRunner.RunCommand("chmod", "0700", "/var/tmp")
 	if err != nil {
 		return bosherr.WrapError(err, "chmod /var/tmp")
+	}
+
+	if p.options.UseDefaultTmpDir {
+		return nil
 	}
 
 	systemTmpDirIsMounted, err := p.IsMountPoint(systemTmpDir)
@@ -486,23 +511,69 @@ func (p linux) changeTmpDirPermissions(path string) error {
 	return nil
 }
 
+func (p linux) MountPersistentDisk(devicePath, mountPoint string) error {
+	p.logger.Debug("platform", "Mounting persistent disk %s at %s", devicePath, mountPoint)
+
+	err := p.fs.MkdirAll(mountPoint, os.FileMode(0700))
+	if err != nil {
+		return bosherr.WrapError(err, "Creating directory %s", mountPoint)
+	}
+
+	realPath, err := p.devicePathResolver.GetRealDevicePath(devicePath)
+	if err != nil {
+		return bosherr.WrapError(err, "Getting real device path")
+	}
+
+	if !p.options.UsePreformattedPersistentDisk {
+		partitions := []boshdisk.Partition{
+			{Type: boshdisk.PartitionTypeLinux},
+		}
+
+		err = p.diskManager.GetPartitioner().Partition(realPath, partitions)
+		if err != nil {
+			return bosherr.WrapError(err, "Partitioning disk")
+		}
+
+		partitionPath := realPath + "1"
+
+		err = p.diskManager.GetFormatter().Format(partitionPath, boshdisk.FileSystemExt4)
+		if err != nil {
+			return bosherr.WrapError(err, "Formatting partition with ext4")
+		}
+
+		realPath = partitionPath
+	}
+
+	err = p.diskManager.GetMounter().Mount(realPath, mountPoint)
+	if err != nil {
+		return bosherr.WrapError(err, "Mounting partition")
+	}
+
+	return nil
+}
+
 func (p linux) UnmountPersistentDisk(devicePath string) (bool, error) {
-	p.logger.Debug("platform", "Unmounting persistent disk %v", devicePath)
+	p.logger.Debug("platform", "Unmounting persistent disk %s", devicePath)
 
 	realPath, err := p.devicePathResolver.GetRealDevicePath(devicePath)
 	if err != nil {
 		return false, bosherr.WrapError(err, "Getting real device path")
 	}
 
-	return p.diskManager.GetMounter().Unmount(realPath + "1")
+	if !p.options.UsePreformattedPersistentDisk {
+		realPath += "1"
+	}
+
+	return p.diskManager.GetMounter().Unmount(realPath)
 }
 
-func (p linux) NormalizeDiskPath(devicePath string) (realPath string, found bool) {
+func (p linux) NormalizeDiskPath(devicePath string) (string, bool) {
 	realPath, err := p.devicePathResolver.GetRealDevicePath(devicePath)
 	if err == nil {
-		found = true
+		return realPath, true
 	}
-	return
+
+	return "", false
 }
 
 func (p linux) IsMountPoint(path string) (bool, error) {
@@ -540,33 +611,38 @@ func (p linux) MigratePersistentDisk(fromMountPoint, toMountPoint string) (err e
 	return
 }
 
-func (p linux) IsDevicePathMounted(path string) (result bool, err error) {
+func (p linux) IsPersistentDiskMounted(path string) (bool, error) {
 	realPath, err := p.devicePathResolver.GetRealDevicePath(path)
 	if err != nil {
-		err = bosherr.WrapError(err, "Getting real device path")
-		return
+		return false, bosherr.WrapError(err, "Getting real device path")
 	}
 
-	return p.diskManager.GetMounter().IsMounted(realPath + "1")
+	if !p.options.UsePreformattedPersistentDisk {
+		realPath += "1"
+	}
+
+	return p.diskManager.GetMounter().IsMounted(realPath)
 }
 
-func (p linux) StartMonit() (err error) {
-	_, _, _, err = p.cmdRunner.RunCommand("sv", "up", "monit")
+func (p linux) StartMonit() error {
+	_, _, _, err := p.cmdRunner.RunCommand("sv", "up", "monit")
 	if err != nil {
-		err = bosherr.WrapError(err, "Shelling out to sv")
+		return bosherr.WrapError(err, "Shelling out to sv")
 	}
-	return
+
+	return nil
 }
 
-func (p linux) SetupMonitUser() (err error) {
+func (p linux) SetupMonitUser() error {
 	monitUserFilePath := filepath.Join(p.dirProvider.BaseDir(), "monit", "monit.user")
 	if !p.fs.FileExists(monitUserFilePath) {
-		err = p.fs.WriteFileString(monitUserFilePath, "vcap:random-password")
+		err := p.fs.WriteFileString(monitUserFilePath, "vcap:random-password")
 		if err != nil {
-			err = bosherr.WrapError(err, "Writing monit user file")
+			return bosherr.WrapError(err, "Writing monit user file")
 		}
 	}
-	return
+
+	return nil
 }
 
 func (p linux) GetMonitCredentials() (username, password string, err error) {
@@ -588,8 +664,8 @@ func (p linux) GetMonitCredentials() (username, password string, err error) {
 	return
 }
 
-func (p linux) GetDiskManager() (diskManager boshdisk.Manager) {
-	return p.diskManager
+func (p linux) GetDefaultNetwork() (boshsettings.Network, error) {
+	return p.netManager.GetDefaultNetwork()
 }
 
 func (p linux) calculateEphemeralDiskPartitionSizes(devicePath string) (swapSize, linuxSize uint64, err error) {

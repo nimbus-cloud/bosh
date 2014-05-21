@@ -25,6 +25,9 @@ module Bosh::Dev::Sandbox
     HM_CONFIG = 'health_monitor.yml'
     HM_CONF_TEMPLATE = File.join(ASSETS_DIR, 'health_monitor.yml.erb')
 
+    EXTERNAL_CPI = 'cpi'
+    EXTERNAL_CPI_TEMPLATE = File.join(ASSETS_DIR, 'cpi.erb')
+
     DIRECTOR_PATH = File.expand_path('bosh-director', REPO_ROOT)
     MIGRATIONS_PATH = File.join(DIRECTOR_PATH, 'db', 'migrations')
 
@@ -37,8 +40,11 @@ module Bosh::Dev::Sandbox
     attr_reader :agent_type
 
     attr_accessor :director_fix_stateful_nodes
+    attr_reader :logs_path
 
     attr_reader :cpi
+
+    attr_accessor :external_cpi_enabled
 
     def self.from_env
       db_opts = {
@@ -93,11 +99,13 @@ module Bosh::Dev::Sandbox
       @director_socket_connector = SocketConnector.new(
         'director', 'localhost', director_port, @logger)
 
-      @worker_process = Service.new(
-        %W[bosh-director-worker -c #{director_config}],
-        { output: "#{base_log_path}.worker.out", env: { 'QUEUE' => '*' } },
-        @logger,
-      )
+      @worker_processes = 3.times.map do |index|
+        Service.new(
+          %W[bosh-director-worker -c #{director_config}],
+          { output: "#{base_log_path}.worker_#{index}.out", env: { 'QUEUE' => '*' } },
+          @logger,
+        )
+      end
 
       @health_monitor_process = Service.new(
         %W[bosh-monitor -c #{sandbox_path(HM_CONFIG)}],
@@ -160,6 +168,12 @@ module Bosh::Dev::Sandbox
       @director_process.start
     end
 
+    def reconfigure_workers
+      @worker_processes.each(&:stop)
+      write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
+      @worker_processes.each(&:start)
+    end
+
     def reconfigure_health_monitor(erb_template)
       @health_monitor_process.stop
       write_in_sandbox(HM_CONFIG, load_config_template(File.join(ASSETS_DIR, erb_template)))
@@ -180,7 +194,7 @@ module Bosh::Dev::Sandbox
     def stop
       @cpi.kill_agents
       @scheduler_process.stop
-      @worker_process.stop
+      @worker_processes.each(&:stop)
       @director_process.stop
       @redis_process.stop
       @nats_process.stop
@@ -226,11 +240,20 @@ module Bosh::Dev::Sandbox
       @sandbox_root ||= Dir.mktmpdir.tap { |p| @logger.info("sandbox=#{p}") }
     end
 
+    def external_cpi_config
+      {
+        exec_path: File.join(REPO_ROOT, 'bosh-director', 'bin', 'dummy_cpi'),
+        director_path: sandbox_path(EXTERNAL_CPI),
+        config_path: sandbox_path(DIRECTOR_CONFIG),
+        env_path: ENV['PATH']
+      }
+    end
+
     private
 
     def do_reset(name)
       @cpi.kill_agents
-      @worker_process.stop
+      @worker_processes.each(&:stop)
       @director_process.stop
       @health_monitor_process.stop
 
@@ -255,17 +278,24 @@ module Bosh::Dev::Sandbox
       write_in_sandbox(HM_CONFIG, load_config_template(HM_CONF_TEMPLATE))
 
       @director_process.start
-      @worker_process.start
+      @worker_processes.each(&:start)
 
-      # CI does not have enough time to start bosh-director
-      # for some parallel tests; increasing to 60 secs (= 300 tries).
-      @director_socket_connector.try_to_connect(300)
+      begin
+        # CI does not have enough time to start bosh-director
+        # for some parallel tests; increasing to 60 secs (= 300 tries).
+        @director_socket_connector.try_to_connect(300)
+      rescue
+        output_service_log(@director_process)
+        raise
+      end
     end
 
     def setup_sandbox_root
       write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
       write_in_sandbox(HM_CONFIG, load_config_template(HM_CONF_TEMPLATE))
       write_in_sandbox(REDIS_CONFIG, load_config_template(REDIS_CONF_TEMPLATE))
+      write_in_sandbox(EXTERNAL_CPI, load_config_template(EXTERNAL_CPI_TEMPLATE))
+      FileUtils.chmod(0755, sandbox_path(EXTERNAL_CPI))
       FileUtils.mkdir_p(sandbox_path('redis'))
       FileUtils.mkdir_p(blobstore_storage_dir)
     end
@@ -285,12 +315,23 @@ module Bosh::Dev::Sandbox
     end
 
     def get_named_port(name)
-      # I don't want to optimize for look-up speed, we only have 5 named ports anyway
       @port_names ||= []
       @port_names << name unless @port_names.include?(name)
       61000 + @test_env_number * 100 + @port_names.index(name)
     end
 
-    attr_reader :logs_path, :director_tmp_path, :dns_db_path, :task_logs_dir
+    DEBUG_HEADER = '*' * 20
+
+    def output_service_log(service)
+      @logger.error("#{DEBUG_HEADER} start #{service.description} stdout #{DEBUG_HEADER}")
+      @logger.error(service.stdout_contents)
+      @logger.error("#{DEBUG_HEADER} end #{service.description} stdout #{DEBUG_HEADER}")
+
+      @logger.error("#{DEBUG_HEADER} start #{service.description} stderr #{DEBUG_HEADER}")
+      @logger.error(service.stderr_contents)
+      @logger.error("#{DEBUG_HEADER} end #{service.description} stderr #{DEBUG_HEADER}")
+    end
+
+    attr_reader :director_tmp_path, :dns_db_path, :task_logs_dir
   end
 end
