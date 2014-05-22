@@ -88,11 +88,8 @@ blobstore:
 <% if_p('blobstore.host') do |host| %>
     host: <%= host %>
 <% end %>
-<% if_p('blobstore.ssl_verify_peer') do |ssl_verify_peer| %>
-    ssl_verify_peer: <%= ssl_verify_peer %>
-<% end %>
-<% if_p('blobstore.s3_multipart_threshold') do |s3_multipart_threshold| %>
-    s3_multipart_threshold: <%= s3_multipart_threshold %>
+<% if_p('blobstore.s3_force_path_style') do |s3_force_path_style| %>
+    s3_force_path_style: <%= s3_force_path_style %>
 <% end %>
 <% if_p('blobstore.ssl_verify_peer') do |ssl_verify_peer| %>
     ssl_verify_peer: <%= ssl_verify_peer %>
