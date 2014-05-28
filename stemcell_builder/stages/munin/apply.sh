@@ -48,6 +48,7 @@ run_in_chroot $chroot "mkdir -p /usr/share/munin/scripts"
 cp -r $assets_dir/plugins/* $chroot/usr/share/munin/plugins/
 cp -r $assets_dir/scripts/* $chroot/usr/share/munin/scripts/
 cp -r $assets_dir/plugin-conf.d/* $chroot/usr/share/munin/plugin-conf.d/
+mv $assets_dir/munin-node.conf $chroot/etc/munin/munin-node.conf
 run_in_chroot $chroot "chmod +x /usr/share/munin/scripts/installplugins.sh"
 
 echo "*/5 * * * * /bin/bash /usr/share/munin/scripts/installplugins.sh" >> $chroot/var/spool/cron/crontabs/root
