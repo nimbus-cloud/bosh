@@ -52,6 +52,7 @@ module Bosh::Dev::Sandbox
         user: ENV['TRAVIS'] ? 'travis' : 'root',
         password: ENV['TRAVIS'] ? '' : 'password',
       }
+
       agent_type = ENV['BOSH_INTEGRATION_AGENT_TYPE'] || 'ruby'
 
       new(
@@ -204,6 +205,9 @@ module Bosh::Dev::Sandbox
       FileUtils.rm_rf(director_tmp_path)
       FileUtils.rm_rf(agent_tmp_path)
       FileUtils.rm_rf(blobstore_storage_dir)
+
+      # Hardcoded in bosh/spec/assets/test_release_template/config/final.yml
+      FileUtils.rm_rf('/tmp/bosh-integration-tests')
     end
 
     def run
