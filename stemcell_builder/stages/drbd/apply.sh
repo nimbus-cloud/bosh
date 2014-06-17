@@ -16,4 +16,5 @@ tar zxvf drbd-8.4.4.tar.gz
 cd drbd-8.4.4
 ./configure --prefix=/ --with-km
 make KDIR=/lib/modules/3.0.0-32-virtual/build && make install
+depmod -a 3.0.0-32-virtual
 "
