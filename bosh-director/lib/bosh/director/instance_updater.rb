@@ -20,7 +20,16 @@ module Bosh::Director
       @blobstore = App.instance.blobstores.blobstore
 
       @job = instance.job
-      @target_state = @instance.state
+      
+      if @job.passive == :enabled
+        @instance.state = 'stopped'
+        @target_state = 'stopped'
+      elsif @job.passive == :disabled
+        @instance.state = 'started'
+        @target_state = 'started'           
+      else
+        @target_state = @instance.state
+      end
 
       @deployment_plan = @job.deployment
       @resource_pool = @job.resource_pool
@@ -88,6 +97,7 @@ module Bosh::Director
       if @target_state == "stopped" && current_state["job_state"] == "running"
         raise AgentJobNotStopped, "`#{@instance}' is still running despite the stop command"
       end
+      @instance.sync_state_with_db
     end
 
     # Watch times don't include the get_state roundtrip time, so effective

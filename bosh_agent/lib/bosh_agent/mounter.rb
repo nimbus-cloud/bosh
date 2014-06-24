@@ -1,4 +1,5 @@
 require 'bosh_agent'
+require 'fileutils'
 
 module Bosh::Agent
   class Mounter
@@ -11,6 +12,9 @@ module Bosh::Agent
       @logger.info("Mounting: #{partition} #{mount_point}")
       options = build_command_line_options(options_hash)
 
+      FileUtils.mkdir_p(mount_point)
+      FileUtils.chmod(0700, mount_point)
+      
       results = shell_runner.sh("mount #{options} #{partition} #{mount_point}", on_error: :return)
 
       if results.failed?

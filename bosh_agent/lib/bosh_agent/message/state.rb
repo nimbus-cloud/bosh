@@ -32,6 +32,32 @@ module Bosh::Agent
           response["vitals"] = Bosh::Agent::Monit.get_vitals
           response["vitals"]["disk"] = Bosh::Agent::DiskUtil.get_usage
         end
+        
+        response["drbd"] = {}
+        drbd = response["drbd"] 
+        
+        if File.file?("/proc/drbd")
+          file = File.open("/proc/drbd", "r")
+          file.each_line do |line|
+            if line=~/cs:(\S+)\s+ro:(\S+)\s+ds:(\S+)/
+              drbd["connection_state"]=$1
+              drbd["role"]=$2
+              drbd["disk_state"]=$3
+            end
+            if line=~/\s*[\[\>\.\]]+\s*sync'ed:\s*(.+)/
+              drbd["sync_state"]=$1
+            end
+            if line=~/^\s*(finish:.+)$/
+              drbd["sync_state"]="#{drbd["sync_state"]} #{$1}"
+            end
+          end
+          file.close
+        else
+          drbd["connection_state"]="not running"
+          drbd["role"]=""
+          drbd["disk_state"]=""
+          drbd["sync_state"]=""
+        end
 
         response
 
@@ -40,7 +66,7 @@ module Bosh::Agent
       end
 
       def job_state
-        Bosh::Agent::Monit.service_group_state
+        Bosh::Agent::Config.state["passive"].to_s == "enabled" ? "passive" : Bosh::Agent::Monit.service_group_state
       end
     end
   end

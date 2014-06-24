@@ -53,7 +53,12 @@ module Bosh::Agent
           Bosh::Agent::Monit.setup_monit_user
           Bosh::Agent::Monit.setup_alerts
 
-          mount_persistent_disk
+          #mount_persistent_disk
+          
+          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"] 
+            Bosh::Agent::Drbd.drbd_startup
+          end
+          
           harden_permissions
         else
           update_agent_id

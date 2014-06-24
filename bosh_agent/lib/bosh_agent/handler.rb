@@ -425,6 +425,78 @@ module Bosh::Agent
       def self.process(args)
 
         if Config.configure
+          
+          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["passive"].to_s == "enabled"
+            raise "Can not start services in passive mode!"
+          end
+          
+          # TODO: DRBD.master (force if force is true)
+          
+            
+          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"] 
+            Bosh::Agent::Drbd.drbd_mount(File.join(Bosh::Agent::Config.base_dir, 'store'))
+          else
+            cids = Bosh::Agent::Config.settings["disks"]["persistent"]
+            i = 0
+            cids.each_key do |cid|
+              if i != 0 
+                raise "Mutliple persistent disks available. Panic!"
+              end
+              disk = Bosh::Agent::Config.platform.lookup_disk_by_cid(cid)
+              partition = "#{disk}1"
+              
+              read_disk_attempts = 300
+              read_disk_attempts.downto(0) do |n|
+                begin
+                  # Parition table is blank
+                  disk_data = File.read(disk, 512)
+      
+                  if disk_data == "\x00"*512
+                    Bosh::Agent::Config.logger.info("Found blank disk #{disk}")
+                  else
+                    Bosh::Agent::Config.logger.info("Disk has partition table")
+                    Bosh::Agent::Config.logger.info(`sfdisk -Llq #{disk} 2> /dev/null`)
+                  end
+                  break
+                rescue => e
+                  # Do nothing - we'll retry
+                  Bosh::Agent::Config.logger.info("Re-trying reading from #{disk}")
+                end
+      
+                if n == 0
+                  raise Bosh::Agent::MessageHandlerError, "Unable to read from new disk"
+                end
+                sleep 1
+              end
+      
+              if File.blockdev?(disk) && DiskUtil.ensure_no_partition?(disk, partition)
+                full_disk = ",,L\n"
+                Bosh::Agent::Config.logger.info("Partitioning #{disk}")
+      
+                Bosh::Agent::Util.partition_disk(disk, full_disk)
+      
+                mke2fs_options = ["-t ext4", "-j"]
+                mke2fs_options << "-E lazy_itable_init=1" if Bosh::Agent::Util.lazy_itable_init_enabled?
+                `/sbin/mke2fs #{mke2fs_options.join(" ")} #{partition}`
+                unless $?.exitstatus == 0
+                  raise Bosh::Agent::MessageHandlerError, "Failed create file system (#{$?.exitstatus})"
+                end
+              elsif File.blockdev?(partition)
+                Bosh::Agent::Config.logger.info("Found existing partition on #{disk}")
+                # Do nothing
+              else
+                raise Bosh::Agent::MessageHandlerError, "Unable to format #{disk}"
+              end
+
+              mountpoint = File.join(Bosh::Agent::Config.base_dir, 'store')
+              unless File.read('/proc/mounts').lines.select { |l| l.match(/#{disk}1/) }.first
+                Bosh::Agent::Config.logger.info("Startup: mounting #{disk}1 at #{mountpoint}")
+                Mounter.new(Bosh::Agent::Config.logger).mount(partition, mountpoint)
+              end            
+              i = i + 1
+            end
+          end
+          
           Bosh::Agent::Monit.start_services
         end
 
@@ -445,6 +517,31 @@ module Bosh::Agent
 
         if Config.configure
           Bosh::Agent::Monit.stop_services
+
+          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"] 
+            Bosh::Agent::Drbd.drbd_umount(File.join(Bosh::Agent::Config.base_dir, 'store'))
+          else
+
+            cids = Bosh::Agent::Config.settings["disks"]["persistent"]
+            i = 0
+            cids.each_key do |cid|
+              if i != 0 
+                raise "Mutliple persistent disks available. Panic!"
+              end
+              disk = Bosh::Agent::Config.platform.lookup_disk_by_cid(cid)
+
+              partition = "#{disk}1"
+              mountpoint = File.join(Bosh::Agent::Config.base_dir, 'store')
+
+              # linux specific? move out?
+              if File.read('/proc/mounts').lines.select { |l| l.match(/#{disk}1/) }.first
+                Bosh::Agent::Config.logger.info("Stop: umounting #{disk}1 at #{mountpoint}")
+                DiskUtil.umount_guard(mountpoint)  
+              end
+              
+              i = i + 1
+            end
+          end
         end
 
         'stopped'

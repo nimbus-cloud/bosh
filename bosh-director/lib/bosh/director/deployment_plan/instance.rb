@@ -322,6 +322,25 @@ module Bosh::Director
           @state == 'stopped' && @current_state['job_state'] == 'running'
       end
 
+      def passive_changed?
+        @job.passive.to_s != @current_state['passive'].to_s
+      end
+      
+      def drbd_changed?
+        return true if @job.drbd_enabled != @current_state['drbd_enabled']
+        return true if @job.drbd_force_master != @current_state['drbd_force_master']
+          
+        return true if @job.drbd_replication_node1 != @current_state['drbd_replication_node1']
+        return true if @job.drbd_replication_node2 != @current_state['drbd_replication_node2']
+        return true if @job.drbd_replication_type != @current_state['drbd_replication_type']
+        return true if @job.drbd_secret != @current_state['drbd_secret']
+        false
+      end
+      
+      def register_dns_changed?
+        @job.dns_register_on_start != @current_state['dns_register_on_start']
+      end 
+      
       ##
       # @return [Boolean] returns true if the any of the expected specifications
       #   differ from the ones provided by the VM
@@ -344,6 +363,9 @@ module Bosh::Director
           changes << :job if job_changed?
           changes << :state if state_changed?
           changes << :dns if dns_changed?
+          changes << :passive if passive_changed?
+          changes << :drbd if drbd_changed?
+          changes << :register_dns if register_dns_changed?
         end
         changes
       end
@@ -364,9 +386,17 @@ module Bosh::Director
           'persistent_disk' => job.persistent_disk,
           'configuration_hash' => configuration_hash,
           'properties' => job.properties,
+          'passive' => job.passive,
+          'drbd_enabled' => job.drbd_enabled,
+          'drbd_force_master' => job.drbd_force_master,
+          'drbd_replication_node1' => job.drbd_replication_node1,
+          'drbd_replication_node2' => job.drbd_replication_node2,
+          'drbd_replication_type' => job.drbd_replication_type,
+          'drbd_secret' => job.drbd_secret,
+          'dns_register_on_start' => job.dns_register_on_start,
           'dns_domain_name' => dns_domain_name
-        }
-
+        }        
+        
         if template_hashes
           spec['template_hashes'] = template_hashes
         end

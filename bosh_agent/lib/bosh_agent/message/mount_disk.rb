@@ -16,8 +16,13 @@ module Bosh::Agent
         if Bosh::Agent::Config.configure
           update_settings
           logger.info("MountDisk: #{@cid} - #{settings['disks'].inspect}")
-
-          setup_disk
+          
+          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"]
+            logger.info("Skipping disk initialization I'm a DRBD box")
+          else
+            setup_disk
+          end
+          
         end
       end
 
@@ -31,50 +36,7 @@ module Bosh::Agent
 
         logger.info("setup disk settings: #{settings.inspect}")
 
-        read_disk_attempts = 300
-        read_disk_attempts.downto(0) do |n|
-          begin
-            # Parition table is blank
-            disk_data = File.read(disk, 512)
-
-            if disk_data == "\x00"*512
-              logger.info("Found blank disk #{disk}")
-            else
-              logger.info("Disk has partition table")
-              logger.info(`sfdisk -Llq #{disk} 2> /dev/null`)
-            end
-            break
-          rescue => e
-            # Do nothing - we'll retry
-            logger.info("Re-trying reading from #{disk}")
-          end
-
-          if n == 0
-            raise Bosh::Agent::MessageHandlerError, "Unable to read from new disk"
-          end
-          sleep 1
-        end
-
-        if File.blockdev?(disk) && DiskUtil.ensure_no_partition?(disk, partition)
-          full_disk = ",,L\n"
-          logger.info("Partitioning #{disk}")
-
-          Bosh::Agent::Util.partition_disk(disk, full_disk)
-
-          mke2fs_options = ["-t ext4", "-j"]
-          mke2fs_options << "-E lazy_itable_init=1" if Bosh::Agent::Util.lazy_itable_init_enabled?
-          `/sbin/mke2fs #{mke2fs_options.join(" ")} #{partition}`
-          unless $?.exitstatus == 0
-            raise Bosh::Agent::MessageHandlerError, "Failed create file system (#{$?.exitstatus})"
-          end
-        elsif File.blockdev?(partition)
-          logger.info("Found existing partition on #{disk}")
-          # Do nothing
-        else
-          raise Bosh::Agent::MessageHandlerError, "Unable to format #{disk}"
-        end
-
-        mount_persistent_disk(partition)
+        #mount_persistent_disk(partition)
         {}
       end
 

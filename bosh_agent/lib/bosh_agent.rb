@@ -36,6 +36,8 @@ require 'bosh_agent/config'
 require 'bosh_agent/util'
 require 'bosh_agent/monit'
 
+require 'bosh_agent/drbd'
+
 require 'bosh_agent/infrastructure'
 require 'bosh_agent/platform'
 

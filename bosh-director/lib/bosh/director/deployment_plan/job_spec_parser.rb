@@ -36,6 +36,9 @@ module Bosh::Director
         parse_update_config
         parse_instances
         parse_networks
+        parse_passive
+        parse_drbd
+        parse_register_dns
 
         @job
       end
@@ -45,6 +48,37 @@ module Bosh::Director
       def parse_name
         @job.name = safe_property(@job_spec, "name", :class => String)
         @job.canonical_name = canonical(@job.name)
+      end
+      
+      def parse_passive
+        if @job_spec.has_key?("passive")
+          if @job_spec["passive"]
+            @job.passive = :enabled
+          else
+            @job.passive = :disabled
+          end
+        else
+          @job.passive = :undefined
+        end
+      end
+      
+      def parse_drbd
+        if @job_spec["drbd"]
+          @job.drbd_enabled = safe_property(@job_spec["drbd"], "enabled", :optional => true, :default => false)
+            
+          @job.drbd_force_master = safe_property(@job_spec["drbd"], "force_master", :optional => true, :default => false)
+            
+          @job.drbd_replication_node1 = safe_property(@job_spec["drbd"], "replication_node1")
+          @job.drbd_replication_node2 = safe_property(@job_spec["drbd"], "replication_node2")
+            
+          @job.drbd_replication_type = safe_property(@job_spec["drbd"], "replication_type")
+           
+          @job.drbd_secret = safe_property(@job_spec["drbd"], "secret")
+        end
+      end
+      
+      def parse_register_dns
+        @job.dns_register_on_start = safe_property(@job_spec, "dns_register_on_start", :optional => true)
       end
 
       def parse_lifecycle

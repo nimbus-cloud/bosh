@@ -17,7 +17,7 @@ module Bosh::Agent
 
         if DiskUtil.mount_entry(partition)
           @block, @mountpoint = DiskUtil.mount_entry(partition).split
-          DiskUtil.umount_guard(@mountpoint)
+          #DiskUtil.umount_guard(@mountpoint)
           logger.info("Unmounted #{@block} on #{@mountpoint}")
           return {:message => "Unmounted #{@block} on #{@mountpoint}" }
         else

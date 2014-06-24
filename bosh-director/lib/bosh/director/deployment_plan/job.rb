@@ -27,6 +27,30 @@ module Bosh::Director
       # @return [Integer] Persistent disk size (no disk if zero)
       attr_accessor :persistent_disk
 
+      # @return [String] Nodes passive state 
+      attr_accessor :passive
+      
+      # @return [Boolean] drbd enabled
+      attr_accessor :drbd_enabled
+      
+      # @return [Boolean] drbd force master 
+      attr_accessor :drbd_force_master
+      
+      # @return [String] drbd replication node1
+      attr_accessor :drbd_replication_node1
+      
+      # @return [String] drbd replication node2
+      attr_accessor :drbd_replication_node2
+      
+      # @return [String] drbd replication type (A|B|C)
+      attr_accessor :drbd_replication_type
+      
+      # @return [String] drbd replication secret (A|B|C)
+      attr_accessor :drbd_secret
+      
+      # @return [String] dns name to register on startup
+      attr_accessor :dns_register_on_start
+      
       # @return [DeploymentPlan] Current deployment plan
       attr_accessor :deployment
 

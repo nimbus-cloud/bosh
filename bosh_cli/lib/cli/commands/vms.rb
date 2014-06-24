@@ -7,6 +7,7 @@ module Bosh::Cli::Command
     option '--details', 'Return detailed VM information'
     option '--dns', 'Return VM DNS A records'
     option '--vitals', 'Return VM vitals information'
+    option '--drbd', 'Return DRBD vitals'
     def list(deployment_name = nil)
       auth_required
       no_track_unsupported
@@ -53,6 +54,9 @@ module Bosh::Cli::Command
           headings += ['Memory Usage', 'Swap Usage']
           headings += ["System\nDisk Usage", "Ephemeral\nDisk Usage", "Persistent\nDisk Usage"]
         end
+        if options[:drbd]
+          headings += ['Connection State', 'Role', 'Disk State', 'Sync State']
+        end
         t.headings = headings
 
         sorted.each do |vm|
@@ -97,6 +101,21 @@ module Bosh::Cli::Command
               end
             else
               9.times { row << 'n/a' }
+            end
+          end
+          
+          if options[:drbd]
+            drbd = vm['drbd']
+            if drbd.nil?
+              row << ""
+              row << ""
+              row << ""
+              row << ""
+            else 
+              row << drbd['connection_state']
+              row << drbd['role']
+              row << drbd['disk_state']
+              row << drbd['sync_state']
             end
           end
 

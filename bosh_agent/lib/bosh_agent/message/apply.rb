@@ -84,6 +84,10 @@ module Bosh::Agent
         # identical with apply spec
         Bosh::Agent::Config.state.write(@new_spec)
         @new_spec
+        
+        if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"]
+          Bosh::Agent::Drbd.drbd_startup 
+        end
 
       rescue Bosh::Agent::StateError => e
         raise Bosh::Agent::MessageHandlerError, e

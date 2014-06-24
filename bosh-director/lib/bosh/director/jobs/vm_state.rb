@@ -42,6 +42,7 @@ module Bosh::Director
         resource_pool = nil
         job_vitals = nil
         job_index = nil
+        drbd = nil
 
         begin
           agent = AgentClient.with_defaults(vm.agent_id, :timeout => TIMEOUT)
@@ -59,6 +60,9 @@ module Bosh::Director
           end
           if agent_state["vitals"]
             job_vitals = agent_state["vitals"]
+          end
+          if agent_state["drbd"]
+            drbd = agent_state["drbd"]
           end
         rescue Bosh::Director::RpcTimeout
           job_state = "unresponsive agent"
@@ -82,6 +86,7 @@ module Bosh::Director
           :resource_pool => resource_pool,
           :vitals => job_vitals,
           :resurrection_paused => vm.instance ? vm.instance.resurrection_paused  : nil,
+          :drbd => drbd,
         }
       end
 

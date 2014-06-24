@@ -153,7 +153,7 @@ module Bosh::Director
         end
 
         @cloud.attach_disk(@vm_model.cid, @instance.model.persistent_disk_cid)
-
+        
         @agent_client.mount_disk(@instance.model.persistent_disk_cid)
       end
     end

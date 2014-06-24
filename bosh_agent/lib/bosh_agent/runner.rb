@@ -14,12 +14,25 @@ module Bosh::Agent
       @logger.info("Starting agent #{VERSION}...")
 
       @logger.info('Configuring agent...')
-      Bootstrap.new.configure
+      bootstrap = Bootstrap.new
+      bootstrap.configure
 
       if Config.configure
         Monit.enable
         Monit.start
-        Monit.start_services
+        
+        if Bosh::Agent::Config.state and Bosh::Agent::Config.state["passive"].to_s == "enabled"
+          @logger.info("Disabling monit startup as in passive mode")
+        else
+          
+          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"] 
+            Bosh::Agent::Drbd.drbd_mount(File.join(Bosh::Agent::Config.base_dir, 'store'))
+          else
+            bootstrap.mount_persistent_disk
+          end
+          
+          Monit.start_services
+        end
       end
 
       if Config.mbus.start_with?('https')
