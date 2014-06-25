@@ -323,9 +323,18 @@ module Bosh::Director::DeploymentPlan
                        package_spec: packages,
                        persistent_disk: 0,
                        starts_on_deploy?: true,
-                       properties: properties)
+                       properties: properties,
+                       passive: 0,
+                       drbd_enabled: false,
+                       drbd_force_master: false,
+                       drbd_replication_node1: "",
+                       drbd_replication_node2: "",
+                       drbd_replication_type: "",
+                       drbd_secret: "",
+                       dns_register_on_start: "",
+                       )
         }
-
+        
         before do
           plan.stub(network: network)
           plan.stub(name: 'mycloud')

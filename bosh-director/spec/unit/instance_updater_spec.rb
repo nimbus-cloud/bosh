@@ -45,6 +45,7 @@ module Bosh::Director
                       update: update_config,
                       name: 'test-job',
                       spec: 'job-spec',
+                      passive: :undefined,
                       release: release)
     end
     let(:state) { 'started' }
@@ -57,6 +58,9 @@ module Bosh::Director
     let(:networks_changed) { false }
     let(:dns_changed) { false }
     let(:disk_currently_attached) { false }
+    let(:passive_changed) { false }
+    let(:drbd_changed) { false }
+    let(:register_dns_changed) { false }
     let(:disk_size) { 0 }
     let(:instance) do
       double('Bosh::Director::DeploymentPlan::Instance',
@@ -71,7 +75,11 @@ module Bosh::Director
              persistent_disk_changed?: persistent_disk_changed,
              networks_changed?: networks_changed,
              dns_changed?: dns_changed,
+             passive_changed?: passive_changed,
+             drbd_changed?: drbd_changed,
+             register_dns_changed?: register_dns_changed,
              spec: instance_spec,
+             sync_state_with_db: true,
              disk_currently_attached?: disk_currently_attached,
              network_settings: double('NetworkSettings'),
              disk_size: disk_size)
