@@ -13,7 +13,7 @@ module Bosh::Agent
       options = build_command_line_options(options_hash)
 
       FileUtils.mkdir_p(mount_point)
-      FileUtils.chmod(0700, mount_point)
+      FileUtils.chmod(0755, mount_point)
       
       results = shell_runner.sh("mount #{options} #{partition} #{mount_point}", on_error: :return)
 

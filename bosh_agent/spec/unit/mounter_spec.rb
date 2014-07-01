@@ -9,6 +9,15 @@ describe Bosh::Agent::Mounter do
     let(:options) { {} }
     let(:result) { instance_double('Bosh::Exec::Result', exit_status: 0, output: 'mount-output', failed?: false) }
 
+    before do
+      FileUtils.stub(:mkdir_p) do
+        true
+      end
+      FileUtils.stub(:chmod) do
+        true
+      end
+    end
+      
     def perform
       mounter.mount('/dev/sda1', '/path/to/mount/point', options)
     end

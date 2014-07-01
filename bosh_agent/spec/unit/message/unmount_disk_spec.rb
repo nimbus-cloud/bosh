@@ -10,7 +10,7 @@ describe Bosh::Agent::Message::UnmountDisk do
     handler = Bosh::Agent::Message::UnmountDisk.new
     Bosh::Agent::DiskUtil.stub(:umount_guard)
 
-    handler.unmount(["4"]).should == { :message => "Unmounted /dev/sdy1 on /foomount"}
+    handler.unmount(["4"]).should == { :message => "Unmounted is deprecated"}
   end
 
   it "should fall through if mount is not present" do
@@ -22,6 +22,6 @@ describe Bosh::Agent::Message::UnmountDisk do
     handler = Bosh::Agent::Message::UnmountDisk.new
     handler.stub(:umount_guard)
 
-    handler.unmount(["4"]).should == { :message => "Unknown mount for partition: /dev/sdx1" }
+    handler.unmount(["4"]).should == { :message => "Unmounted is deprecated" }
   end
 end

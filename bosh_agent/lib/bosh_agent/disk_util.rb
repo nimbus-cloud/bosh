@@ -9,6 +9,59 @@ module Bosh::Agent
         Bosh::Agent::Config.base_dir
       end
 
+      def normal_mount_format(cid, mountpoint)
+        
+        disk = Bosh::Agent::Config.platform.lookup_disk_by_cid(cid)
+        partition = "#{disk}1"
+        
+        read_disk_attempts = 300
+        read_disk_attempts.downto(0) do |n|
+          begin
+            # Parition table is blank
+            disk_data = File.read(disk, 512)
+
+            if disk_data == "\x00"*512
+              Bosh::Agent::Config.logger.info("Found blank disk #{disk}")
+            else
+              Bosh::Agent::Config.logger.info("Disk has partition table")
+              Bosh::Agent::Config.logger.info(`sfdisk -Llq #{disk} 2> /dev/null`)
+            end
+            break
+          rescue => e
+            # Do nothing - we'll retry
+            Bosh::Agent::Config.logger.info("Re-trying reading from #{disk}")
+          end
+
+          if n == 0
+            raise Bosh::Agent::MessageHandlerError, "Unable to read from new disk"
+          end
+          sleep 1
+        end
+
+        if File.blockdev?(disk) && DiskUtil.ensure_no_partition?(disk, partition)
+          full_disk = ",,L\n"
+          Bosh::Agent::Config.logger.info("Partitioning #{disk}")
+
+          Bosh::Agent::Util.partition_disk(disk, full_disk)
+
+          mke2fs_options = ["-t ext4", "-j"]
+          mke2fs_options << "-E lazy_itable_init=1" if Bosh::Agent::Util.lazy_itable_init_enabled?
+          `/sbin/mke2fs #{mke2fs_options.join(" ")} #{partition}`
+          unless $?.exitstatus == 0
+            raise Bosh::Agent::MessageHandlerError, "Failed create file system (#{$?.exitstatus})"
+          end
+        elsif File.blockdev?(partition)
+          Bosh::Agent::Config.logger.info("Found existing partition on #{disk}")
+        else
+          raise Bosh::Agent::MessageHandlerError, "Unable to format #{disk}"
+        end
+
+        unless File.read('/proc/mounts').lines.select { |l| l.match(/#{disk}1/) }.first
+          Bosh::Agent::Config.logger.info("Startup: mounting #{disk}1 at #{mountpoint}")
+          Mounter.new(Bosh::Agent::Config.logger).mount(partition, mountpoint)
+        end
+      end
+      
       def mount_entry(partition)
         File.read('/proc/mounts').lines.select { |l| l.match(/#{partition}/) }.first
       end
@@ -16,9 +69,28 @@ module Bosh::Agent
       GUARD_RETRIES = 600
       GUARD_SLEEP = 1
 
+      def is_mounted?(mount_point)
+      
+        results = Bosh::Exec.sh("mount 2>&1")
+        
+        raise "Command: mount failed. #{results.output}" if results.exit_status != 0
+        
+        results.output.split( /\r?\n/ ).each do |line|
+          if line =~ /\son\s(\S+)/
+            return true if ($1 == mount_point)   
+          end
+        end
+        false
+      end
+      
       def umount_guard(mountpoint)
+        
+        if is_mounted?(mountpoint) == false
+          logger.info("mountpoint is already unmounted")
+          return
+        end
+        
         umount_attempts = GUARD_RETRIES
-
         loop do
           umount_output = `umount #{mountpoint} 2>&1`
 

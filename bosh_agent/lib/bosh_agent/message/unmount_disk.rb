@@ -12,17 +12,9 @@ module Bosh::Agent
 
       def unmount(args)
         cid = args.first
-        disk = Bosh::Agent::Config.platform.lookup_disk_by_cid(cid)
-        partition = "#{disk}1"
 
-        if DiskUtil.mount_entry(partition)
-          @block, @mountpoint = DiskUtil.mount_entry(partition).split
-          #DiskUtil.umount_guard(@mountpoint)
-          logger.info("Unmounted #{@block} on #{@mountpoint}")
-          return {:message => "Unmounted #{@block} on #{@mountpoint}" }
-        else
-          return {:message => "Unknown mount for partition: #{partition}"}
-        end
+        # unmount has now been moved to the stop job
+        return {:message => "Unmounted is deprecated" }
       end
     end
   end

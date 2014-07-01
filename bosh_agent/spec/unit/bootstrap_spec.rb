@@ -41,7 +41,6 @@ describe Bosh::Agent::Bootstrap do
     Bosh::Agent::Monit.should_receive(:setup_monit_user).ordered
     Bosh::Agent::Monit.should_receive(:setup_alerts).ordered
 
-    @processor.should_receive(:mount_persistent_disk).ordered
     @processor.should_receive(:harden_permissions).ordered
 
     @processor.configure

@@ -21,12 +21,12 @@ module Bosh::Agent
         Monit.enable
         Monit.start
         
-        if Bosh::Agent::Config.state and Bosh::Agent::Config.state["passive"].to_s == "enabled"
+        if Config.state and Config.state["passive"].to_s == "enabled"
           @logger.info("Disabling monit startup as in passive mode")
         else
           
-          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"] 
-            Bosh::Agent::Drbd.drbd_mount(File.join(Bosh::Agent::Config.base_dir, 'store'))
+          if Config.state and Config.state["drbd_enabled"] 
+            Drbd.drbd_mount(File.join(Config.base_dir, 'store'))
           else
             bootstrap.mount_persistent_disk
           end

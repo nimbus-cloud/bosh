@@ -15,7 +15,7 @@ module Bosh::Agent
       settings.cache
       settings
     end
-
+    
     def initialize(file)
       @settings = {}
       @cache_file = file

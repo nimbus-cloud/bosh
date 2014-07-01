@@ -17,6 +17,10 @@ module Bosh::Agent
         #logger = Bosh::Agent::Config.logger
         #logger.info("MigrateDisk:" + args.inspect)
 
+        if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"]
+          raise "Migrating a drbd box is not supported."
+        end
+        
         self.new.migrate(args)
         {}
       end
@@ -28,6 +32,8 @@ module Bosh::Agent
         DiskUtil.umount_guard(store_path)
 
         mount_store(@old_cid, read_only: true)
+        
+        Bosh::Agent::DiskUtil.normal_mount_format(@new_cid, store_migration_target)
 
         if check_mountpoints
           logger.info("Copy data from old to new store disk")
@@ -36,8 +42,24 @@ module Bosh::Agent
 
         DiskUtil.umount_guard(store_path)
         DiskUtil.umount_guard(store_migration_target)
-
-        mount_store(@new_cid)
+        
+        #horrible
+        unless skip_update
+        
+          @settings = Bosh::Agent::Settings.load
+          @settings['disks']['persistent'].delete(@old_cid)
+          Bosh::Agent::Config.settings = @settings
+          
+          json = Yajl::Encoder.encode(@settings)
+          File.open(Bosh::Agent::Config.settings_file, 'w') do |file|
+            file.write(json)
+          end
+        end
+          
+      end
+      
+      def skip_update
+        false
       end
 
       private

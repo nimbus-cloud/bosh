@@ -4,8 +4,10 @@ require File.dirname(__FILE__) + '/../../spec_helper'
 require 'fileutils'
 
 describe Bosh::Agent::Message::State do
+  include FakeFS::SpecHelpers
 
   before(:each) do
+    FileUtils.mkdir_p("/tmp")
     state_file = Tempfile.new("agent-state")
 
     Bosh::Agent::Config.state    = Bosh::Agent::State.new(state_file.path)
@@ -25,9 +27,38 @@ describe Bosh::Agent::Message::State do
       "agent_id"      => "007",
       "vm"            => "zb",
       "job_state"     => [ ],
+      "drbd"          => {"connection_state"=>"not running", "role"=>"", "disk_state"=>"", "sync_state"=>""},
       "bosh_protocol" => Bosh::Agent::BOSH_PROTOCOL,
       "ntp"           => { "message" => Bosh::Agent::NTP::FILE_MISSING }
     }
+    handler.stub(:job_state).and_return([])
+    handler.state.should == initial_state
+  end
+  
+  it "should parse and report drbd status" do
+
+    FileUtils.mkdir_p("/proc")
+    File.open('/proc/drbd', 'w+') do |f| 
+      f.write("version: 8.4.4 (api:1/proto:86-101)\n")
+      f.write("GIT-hash: 74402fecf24da8e5438171ee8c19e28627e1c98a build by @ubuntu, 2014-06-24 08:46:56\n")
+      
+      f.write("1: cs:Connected ro:Primary/Secondary ds:UpToDate/UpToDate A r-----\n")
+      f.write("   ns:2842968 nr:0 dw:1167792 dr:1680521 al:19 bm:103 lo:0 pe:0 ua:0 ap:0 ep:1 wo:f oos:0\n")
+      
+    end
+
+    initial_state = {
+      "deployment"    => "",
+      "networks"      => { },
+      "resource_pool" => { },
+      "agent_id"      => "007",
+      "vm"            => "zb",
+      "job_state"     => [ ],
+      "drbd"          => {"connection_state"=>"Connected", "role"=>"Primary/Secondary", "disk_state"=>"UpToDate/UpToDate"},
+      "bosh_protocol" => Bosh::Agent::BOSH_PROTOCOL,
+      "ntp"           => { "message" => Bosh::Agent::NTP::FILE_MISSING }
+    }
+    handler = Bosh::Agent::Message::State.new
     handler.stub(:job_state).and_return([])
     handler.state.should == initial_state
   end

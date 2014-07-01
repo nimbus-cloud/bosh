@@ -63,6 +63,9 @@ describe Bosh::Agent::Message::MigrateDisk do
                                           persistent_disk_mount_point,
                                           read_only: true).ordered
 
+      Bosh::Agent::DiskUtil.stub(:normal_mount_format) do
+        true
+      end
       # copy stuff over
       migrate_disk.should_receive(:`).ordered.with(
         "(cd #{persistent_disk_mount_point} && tar cf - .) | (cd #{migration_mount_point} && tar xpf -)"
@@ -77,9 +80,11 @@ describe Bosh::Agent::Message::MigrateDisk do
       Bosh::Agent::DiskUtil.should_receive(:umount_guard).ordered.with(
         migration_mount_point,
       )
-      mounter.should_receive(:mount).with('/dev/sdb1',
-                                          persistent_disk_mount_point, {}).ordered
 
+      migrate_disk.stub(:skip_update) do
+        true
+      end
+      
       migrate_disk.migrate(["old_disk_cid", "new_disk_cid"])
     end
   end

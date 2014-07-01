@@ -33,9 +33,17 @@ module Bosh::Agent
           response["vitals"]["disk"] = Bosh::Agent::DiskUtil.get_usage
         end
         
-        response["drbd"] = {}
-        drbd = response["drbd"] 
-        
+        response["drbd"] = drbd_state
+
+        response
+
+      rescue Bosh::Agent::StateError => e
+        raise Bosh::Agent::MessageHandlerError, e
+      end
+      
+      def drbd_state
+        drbd = {} 
+                
         if File.file?("/proc/drbd")
           file = File.open("/proc/drbd", "r")
           file.each_line do |line|
@@ -59,10 +67,7 @@ module Bosh::Agent
           drbd["sync_state"]=""
         end
 
-        response
-
-      rescue Bosh::Agent::StateError => e
-        raise Bosh::Agent::MessageHandlerError, e
+        drbd
       end
 
       def job_state

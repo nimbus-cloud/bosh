@@ -17,7 +17,7 @@ resource r0 {
     shared-secret <%= drbd_secret %>;
   }
   disk {
-    resync-rate 10M;
+    resync-rate 24M;
   }
   handlers {
     before-resync-target "/lib/drbd/snapshot-resync-target-lvm.sh";
@@ -139,7 +139,6 @@ ERB
         
         results = Bosh::Exec.sh("lvs")
         unless (results.output =~ /StoreData\s+vgStoreData/m)
-          # Leave 10% for lvm snapshots
           Bosh::Exec.sh("lvcreate -n StoreData -l 40%FREE vgStoreData");
         end
       
@@ -168,7 +167,6 @@ ERB
         logger.info("setup disk settings: /dev/drbd1")
         partition = "/dev/drbd1"
         
-        #Add additional check for "force" and not format unless we are forcing.
         result = Bosh::Exec.sh("file -s /dev/drbd1")
         if result.output=~/^\/dev\/drbd1: data/
           mke2fs_options = ["-t ext4", "-j"]
@@ -206,27 +204,10 @@ ERB
         false
       end
       
-      def safe_umount(mount_point)
-        return if !is_mounted?(mount_point)
-          
-        results = nil
-        for i in 0..15
-          results = Bosh::Exec.sh("umount #{mount_point} 2>&1", on_error: :return)
-          return true if results.exit_status == 0
-          if results.output !~ /device is busy/
-            raise "Command: umount #{mount_point} failed. #{results.output}"
-          end
-          sleep 1
-        end
-        #TODO: Maybe try something more forceful? Kill some processes? 
-        raise "umount #{mount_point} failed after 15 attempts. Last error: #{results.output}"
-      end
-      
       def drbd_umount(mount_point)
         
         Bosh::Agent::Config.logger.info "DRBD UMOUNT"
         DiskUtil.umount_guard(mount_point) if is_mounted?(mount_point)
-        # TODO: Only run if you are primary? maybe this is safe
         drbd_make_secondary
       end
       
