@@ -180,6 +180,8 @@ ERB
       
       def drbd_mount(mount_point)
         Bosh::Agent::Config.logger.info "DRBD MOUNT"
+        return if is_mounted?(mount_point)
+        
         drbd_make_primary
         
         FileUtils.mkdir_p(mount_point)

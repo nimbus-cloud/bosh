@@ -450,13 +450,17 @@ module Bosh::Agent
             non_drbd_mount()
           end
           
+          if Bosh::Agent::Config.state and Bosh::Agent::Config.state["dns_register_on_start"]
+            Bosh::Agent::Dns.update_dns_servers()
+          end
+          
           Bosh::Agent::Monit.start_services
         end
 
         'started'
 
       rescue => e
-        raise Bosh::Agent::MessageHandlerError, "Cannot start job: #{e}"
+        raise Bosh::Agent::MessageHandlerError, "Cannot start job: #{e.message} #{e.backtrace}"
       end
     end
 

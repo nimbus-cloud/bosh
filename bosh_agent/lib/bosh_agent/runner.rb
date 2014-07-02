@@ -31,6 +31,10 @@ module Bosh::Agent
             bootstrap.mount_persistent_disk
           end
           
+          if Config.state and Config.state["dns_register_on_start"]
+            Bosh::Agent::Dns.update_dns_servers()
+          end
+          
           Monit.start_services
         end
       end
