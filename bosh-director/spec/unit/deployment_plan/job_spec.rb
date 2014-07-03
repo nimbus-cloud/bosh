@@ -181,6 +181,7 @@ describe Bosh::Director::DeploymentPlan::Job do
                                     'password' => '12321',
                                     'host' => 'localhost'
                                   },
+                                  'dns' => nil,
                                   'mem' => 2048,
                                 )
     end
