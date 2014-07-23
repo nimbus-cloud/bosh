@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe 'CentOS stemcell' do
+describe 'CentOS stemcell', stemcell_image: true do
   context 'installed by image_install_grub' do
     describe file('/etc/fstab') do
       it { should be_file }
@@ -58,6 +58,18 @@ describe 'CentOS stemcell' do
       it { should contain 'BOOTPROTO=dhcp' }
       it { should contain 'ONBOOT=on' }
       it { should contain 'TYPE="Ethernet"' }
+    end
+  end
+
+  context 'installed by image_vsphere_cdrom stage', {
+    exclude_on_aws: true,
+    exclude_on_vcloud: true,
+    exclude_on_warden: true,
+    exclude_on_openstack: true,
+  } do
+    describe file('/etc/sysctl.conf') do
+      it { should be_file }
+      it { should contain 'dev.cdrom.lock=0' }
     end
   end
 end

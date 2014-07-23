@@ -4,8 +4,9 @@ require 'bosh/director/dns_helper'
 module Bosh::Director
   module DeploymentPlan
     describe DeploymentSpecParser do
-      subject(:parser) { described_class.new(event_log) }
+      subject(:parser) { described_class.new(event_log, logger) }
       let(:event_log) { instance_double('Bosh::Director::EventLog::Log') }
+      let(:logger) { Logger.new('/dev/null') }
 
       describe '#parse' do
         let(:deployment_spec) do
@@ -342,11 +343,11 @@ module Bosh::Director
 
               it 'delegates to ResourcePool' do
                 expect(ResourcePool).to receive(:new).
-                  with(be_a(Planner), 'name' => 'rp1-name').
+                  with(be_a(Planner), {'name' => 'rp1-name'}, logger).
                   and_return(rp1)
 
                 expect(ResourcePool).to receive(:new).
-                  with(be_a(Planner), 'name' => 'rp2-name').
+                  with(be_a(Planner), {'name' => 'rp2-name'}, logger).
                   and_return(rp2)
 
                 deployment = parser.parse(deployment_spec)
@@ -355,11 +356,11 @@ module Bosh::Director
 
               it 'allows to look up resource_pool by name' do
                 allow(ResourcePool).to receive(:new).
-                  with(be_a(Planner), 'name' => 'rp1-name').
+                  with(be_a(Planner), {'name' => 'rp1-name'}, logger).
                   and_return(rp1)
 
                 allow(ResourcePool).to receive(:new).
-                  with(be_a(Planner), 'name' => 'rp2-name').
+                  with(be_a(Planner), {'name' => 'rp2-name'}, logger).
                   and_return(rp2)
 
                 deployment = parser.parse(deployment_spec)
@@ -422,11 +423,11 @@ module Bosh::Director
 
               it 'delegates to Job to parse job specs' do
                 expect(Job).to receive(:parse).
-                  with(be_a(Planner), {'name' => 'job1-name'}, event_log).
+                  with(be_a(Planner), {'name' => 'job1-name'}, event_log, logger).
                   and_return(job1)
 
                 expect(Job).to receive(:parse).
-                  with(be_a(Planner), {'name' => 'job2-name'}, event_log).
+                  with(be_a(Planner), {'name' => 'job2-name'}, event_log, logger).
                   and_return(job2)
 
                 deployment = parser.parse(deployment_spec)
@@ -435,11 +436,11 @@ module Bosh::Director
 
               it 'allows to look up job by name' do
                 allow(Job).to receive(:parse).
-                  with(be_a(Planner), {'name' => 'job1-name'}, event_log).
+                  with(be_a(Planner), {'name' => 'job1-name'}, event_log, logger).
                   and_return(job1)
 
                 allow(Job).to receive(:parse).
-                  with(be_a(Planner), {'name' => 'job2-name'}, event_log).
+                  with(be_a(Planner), {'name' => 'job2-name'}, event_log, logger).
                   and_return(job2)
 
                 deployment = parser.parse(deployment_spec)
@@ -472,11 +473,11 @@ module Bosh::Director
 
               it 'raises an error' do
                 allow(Job).to receive(:parse).
-                  with(be_a(Planner), {'name' => 'job1-name'}, event_log).
+                  with(be_a(Planner), {'name' => 'job1-name'}, event_log, logger).
                   and_return(job1)
 
                 allow(Job).to receive(:parse).
-                  with(be_a(Planner), {'name' => 'job2-name'}, event_log).
+                  with(be_a(Planner), {'name' => 'job2-name'}, event_log, logger).
                   and_return(job2)
 
                 expect {
@@ -521,7 +522,7 @@ module Bosh::Director
 
             it 'raises an error because only new_name should reference a job' do
               allow(Job).to receive(:parse).
-                with(be_a(Planner), {'name' => 'job-old-name'}, event_log).
+                with(be_a(Planner), {'name' => 'job-old-name'}, event_log, logger).
                 and_return(job)
 
               options = {

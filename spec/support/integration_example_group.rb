@@ -82,11 +82,13 @@ module IntegrationExampleGroup
 
   def deploy_simple_manifest(options={})
     set_deployment(options)
+    return_exit_code = options.fetch(:return_exit_code, false)
 
-    output = deploy(options)
-    expect($?).to be_success
+    output, exit_code = deploy(options.merge({return_exit_code: true}))
 
-    output
+    expect($?.success?).to_not eq(options.fetch(:failure_expected, false))
+
+    return_exit_code ? [output, exit_code] : output
   end
 
   def yaml_file(name, object)
@@ -117,7 +119,6 @@ end
 
 module IntegrationSandboxHelpers
   def start_sandbox
-    return if $sandbox_started
     $sandbox_started = true
 
     logger.info('Starting sandboxed environment for BOSH tests...')
@@ -133,6 +134,10 @@ module IntegrationSandboxHelpers
         exit(status)
       end
     end
+  end
+
+  def sandbox_started?
+    !!$sandbox_started
   end
 
   def current_sandbox
@@ -197,8 +202,9 @@ module IntegrationSandboxBeforeHelpers
   def with_reset_sandbox_before_each
     before do |example|
       prepare_sandbox
-      start_sandbox
-      unless example.metadata[:no_reset]
+      if !sandbox_started?
+        start_sandbox
+      elsif !example.metadata[:no_reset]
         reset_sandbox(example ? example.metadata[:description] : '')
       end
     end
@@ -208,8 +214,11 @@ module IntegrationSandboxBeforeHelpers
     # `example` is not available in before(:all)
     before(:all) do
       prepare_sandbox
-      start_sandbox
-      reset_sandbox('')
+      if !sandbox_started?
+        start_sandbox
+      else
+        reset_sandbox('')
+      end
     end
   end
 end

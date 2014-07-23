@@ -1,51 +1,55 @@
-# Copyright (c) 2009-2013 GoPivotal, Inc.
-
 require 'spec_helper'
 
 module Bosh::Director
   describe Api::StemcellManager do
-    let(:tmpdir) { Dir::tmpdir }
-    let(:username) { 'username-1' }
-    let(:task_id) { 1 }
-    let(:task) { double('task', :id => task_id) }
-    let(:stemcell) { 'stemcell_location' }
+    let(:username) { 'fake-username' }
+    let(:task) { instance_double('Bosh::Director::Models::Task', id: 1) }
+
+    before { allow(JobQueue).to receive(:new).and_return(job_queue) }
     let(:job_queue) { instance_double('Bosh::Director::JobQueue') }
 
-    describe 'create_stemcell' do
-      before do
-        JobQueue.stub(:new).and_return(job_queue)
+    describe '#create_stemcell_from_url' do
+      let(:stemcell_url) { 'http://fake-domain.com/stemcell.tgz' }
+
+      it 'enqueues a task to upload a remote stemcell' do
+        expect(job_queue).to receive(:enqueue).with(
+          username,
+          Jobs::UpdateStemcell,
+          'create stemcell',
+          [stemcell_url, { remote: true }],
+        ).and_return(task)
+
+        expect(subject.create_stemcell_from_url(username, stemcell_url)).to eql(task)
       end
+    end
 
-      context 'local stemcell' do
-        let(:options) { { foo: 'bar' } }
+    describe '#create_stemcell_from_file_path' do
+      let(:stemcell_path) { '/path/to/stemcell.tgz' }
 
-        before do
-          SecureRandom.stub(:uuid).and_return('FAKE_UUID')
-        end
-
-        it 'enqueues a task to upload a local stemcell' do
-          subject.stub(check_available_disk_space: true)
-          subject.stub(:write_file)
-
-          job_queue.should_receive(:enqueue).with(username,
-                                                  Jobs::UpdateStemcell,
-                                                  'create stemcell',
-                                                  [File.join(tmpdir, 'stemcell-FAKE_UUID'), options]).and_return(task)
-
-          expect(subject.create_stemcell(username, stemcell, options)).to eql(task)
-        end
-      end
-
-      context 'remote stemcell' do
-        let(:options) { { remote: true } }
+      context 'when stemcell file exists' do
+        before { allow(File).to receive(:exists?).with(stemcell_path).and_return(true) }
 
         it 'enqueues a task to upload a remote stemcell' do
-          job_queue.should_receive(:enqueue).with(username,
-                                                  Jobs::UpdateStemcell,
-                                                  'create stemcell',
-                                                  [stemcell, options]).and_return(task)
+          expect(job_queue).to receive(:enqueue).with(
+            username,
+            Jobs::UpdateStemcell,
+            'create stemcell',
+            [stemcell_path],
+          ).and_return(task)
 
-          expect(subject.create_stemcell(username, stemcell, options)).to eql(task)
+          expect(subject.create_stemcell_from_file_path(username, stemcell_path)).to eql(task)
+        end
+      end
+
+      context 'when stemcell file does not exist' do
+        before { allow(File).to receive(:exists?).with(stemcell_path).and_return(false) }
+
+        it 'raises an error' do
+          expect(job_queue).to_not receive(:enqueue)
+
+          expect {
+            expect(subject.create_stemcell_from_file_path(username, stemcell_path))
+          }.to raise_error(DirectorError, /Failed to create stemcell: file not found/)
         end
       end
     end

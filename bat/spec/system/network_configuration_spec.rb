@@ -18,9 +18,9 @@ describe 'network configuration' do
   end
 
   describe 'resolving DNS entries' do
-    before { pending 'director not configured with dns' unless dns? }
+    before { skip 'director not configured with dns' unless dns? }
 
-    let(:dns) { Resolv::DNS.new(nameserver: @env.director) }
+    let(:dns) { Resolv::DNS.new(nameserver: @env.dns_host) }
 
     it 'forward looks up instance' do
       address = dns.getaddress("0.batlight.static.bat.#{bosh_tld}").to_s
@@ -46,9 +46,9 @@ describe 'network configuration' do
 
   describe 'changing instance DNS (exercises configure_networks CPI method)' do
     before do
-      pending 'director not configured with dns' unless dns?
+      skip 'director not configured with dns' unless dns?
       unless @requirements.stemcell.supports_network_reconfiguration?
-        pending "network reconfiguration does not work for #{@requirements.stemcell}"
+        skip "network reconfiguration does not work for #{@requirements.stemcell}"
       end
     end
 
@@ -71,7 +71,7 @@ describe 'network configuration' do
   context 'when using manual networking' do
     before do
       unless @requirements.stemcell.supports_changing_static_ip?(network_type)
-        pending "network reconfiguration does not work for #{@requirements.stemcell}"
+        skip "network reconfiguration does not work for #{@requirements.stemcell}"
       end
     end
 

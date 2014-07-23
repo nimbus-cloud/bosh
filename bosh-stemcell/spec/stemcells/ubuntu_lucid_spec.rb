@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe 'Ubuntu Lucid stemcell' do
+describe 'Ubuntu Lucid stemcell', stemcell_image: true do
   context 'installed by image_install_grub', exclude_on_warden: true do
     describe file('/boot/grub/grub.conf') do
       it { should be_file }
@@ -15,7 +15,7 @@ describe 'Ubuntu Lucid stemcell' do
     end
 
     describe file('/boot/grub/menu.lst') do
-      before { pending 'until aws/openstack stop clobbering the symlink with "update-grub"' }
+      before { skip 'until aws/openstack stop clobbering the symlink with "update-grub"' }
       it { should be_linked_to('./grub.conf') }
     end
   end
@@ -49,6 +49,28 @@ describe 'Ubuntu Lucid stemcell' do
       it { should be_file }
       it { should contain 'auto eth0' }
       it { should contain 'iface eth0 inet dhcp' }
+    end
+  end
+
+  context 'installed by system_open_vm_tools', {
+    exclude_on_aws: true,
+    exclude_on_vcloud: true,
+    exclude_on_warden: true,
+    exclude_on_openstack: true,
+  } do
+    describe package('open-vm-tools') do
+      it { should be_installed }
+    end
+  end
+
+  context 'installed by image_vsphere_cdrom stage', {
+    exclude_on_aws: true,
+    exclude_on_vcloud: true,
+    exclude_on_warden: true,
+    exclude_on_openstack: true,
+  } do
+    describe file('/etc/udev/rules.d/60-cdrom_id.rules') do
+      it { should_not be_file }
     end
   end
 end

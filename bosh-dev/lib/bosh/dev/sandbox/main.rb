@@ -6,6 +6,7 @@ require 'bosh/dev/sandbox/socket_connector'
 require 'bosh/dev/sandbox/database_migrator'
 require 'bosh/dev/sandbox/postgresql'
 require 'bosh/dev/sandbox/mysql'
+require 'bosh/dev/sandbox/nginx'
 require 'cloud/dummy'
 
 module Bosh::Dev::Sandbox
@@ -18,6 +19,9 @@ module Bosh::Dev::Sandbox
 
     DIRECTOR_CONFIG = 'director_test.yml'
     DIRECTOR_CONF_TEMPLATE = File.join(ASSETS_DIR, 'director_test.yml.erb')
+
+    DIRECTOR_NGINX_CONFIG = 'director_nginx.conf'
+    DIRECTOR_NGINX_CONF_TEMPLATE = File.join(ASSETS_DIR, 'director_nginx.conf.erb')
 
     REDIS_CONFIG = 'redis_test.conf'
     REDIS_CONF_TEMPLATE = File.join(ASSETS_DIR, 'redis_test.conf.erb')
@@ -53,7 +57,7 @@ module Bosh::Dev::Sandbox
         password: ENV['TRAVIS'] ? '' : 'password',
       }
 
-      agent_type = ENV['BOSH_INTEGRATION_AGENT_TYPE'] || 'ruby'
+      agent_type = ENV['BOSH_INTEGRATION_AGENT_TYPE'] || 'go'
 
       new(
         db_opts,
@@ -77,28 +81,31 @@ module Bosh::Dev::Sandbox
       @director_tmp_path = sandbox_path('boshdir')
       @blobstore_storage_dir = sandbox_path('bosh_test_blobstore')
 
-      director_config = sandbox_path(DIRECTOR_CONFIG)
       base_log_path = File.join(logs_path, @name)
 
-      @redis_process = Service.new(
-        %W[redis-server #{sandbox_path(REDIS_CONFIG)}], {}, @logger)
+      @redis_process = Service.new(%W[redis-server #{sandbox_path(REDIS_CONFIG)}], {}, @logger)
 
-      @redis_socket_connector = SocketConnector.new(
-        'redis', 'localhost', redis_port, @logger)
+      @redis_socket_connector = SocketConnector.new('redis', 'localhost', redis_port, @logger)
 
       @nats_process = Service.new(%W[nats-server -p #{nats_port}], {}, @logger)
 
-      @nats_socket_connector = SocketConnector.new(
-        'nats', 'localhost', nats_port, @logger)
+      @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @logger)
 
+      @nginx = Nginx.new
+
+      @director_nginx_process = Service.new(
+        %W[#{@nginx.executable_path} -c #{sandbox_path(DIRECTOR_NGINX_CONFIG)}], {}, @logger)
+
+      director_config = sandbox_path(DIRECTOR_CONFIG)
       @director_process = Service.new(
         %W[bosh-director -c #{director_config}],
         { output: "#{base_log_path}.director.out" },
         @logger,
       )
 
-      @director_socket_connector = SocketConnector.new(
-        'director', 'localhost', director_port, @logger)
+      @director_nginx_socket_connector = SocketConnector.new('director_nginx', 'localhost', director_port, @logger)
+
+      @director_socket_connector = SocketConnector.new('director', 'localhost', director_ruby_port, @logger)
 
       @worker_processes = 3.times.map do |index|
         Service.new(
@@ -150,12 +157,22 @@ module Bosh::Dev::Sandbox
       @redis_process.start
       @redis_socket_connector.try_to_connect
 
+      @director_nginx_process.start
+      @director_nginx_socket_connector.try_to_connect
+
       @nats_process.start
       @nats_socket_connector.try_to_connect
 
       FileUtils.mkdir_p(cloud_storage_dir)
       FileUtils.rm_rf(logs_path)
       FileUtils.mkdir_p(logs_path)
+
+      @database.create_db
+      @database_created = true
+      @database_migrator.migrate
+
+      reconfigure_director
+      @worker_processes.each(&:start)
     end
 
     def reset(name)
@@ -165,8 +182,25 @@ module Bosh::Dev::Sandbox
 
     def reconfigure_director
       @director_process.stop
+
       write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
+
+      FileUtils.rm_rf(director_tmp_path)
+      FileUtils.mkdir_p(director_tmp_path)
+      File.open(File.join(director_tmp_path, 'state.json'), 'w') do |f|
+        f.write(Yajl::Encoder.encode('uuid' => DIRECTOR_UUID))
+      end
+
       @director_process.start
+
+      begin
+        # CI does not have enough time to start bosh-director
+        # for some parallel tests; increasing to 60 secs (= 300 tries).
+        @director_socket_connector.try_to_connect(300)
+      rescue
+        output_service_log(@director_process)
+        raise
+      end
     end
 
     def reconfigure_workers
@@ -197,8 +231,11 @@ module Bosh::Dev::Sandbox
       @scheduler_process.stop
       @worker_processes.each(&:stop)
       @director_process.stop
+
+      @director_nginx_process.stop
       @redis_process.stop
       @nats_process.stop
+
       @health_monitor_process.stop
       @database.drop_db
       FileUtils.rm_f(dns_db_path)
@@ -236,6 +273,10 @@ module Bosh::Dev::Sandbox
       @director_port ||= get_named_port(:director)
     end
 
+    def director_ruby_port
+      @director_ruby_port ||= get_named_port(:director_ruby)
+    end
+
     def redis_port
       @redis_port ||= get_named_port(:redis)
     end
@@ -257,51 +298,38 @@ module Bosh::Dev::Sandbox
 
     def do_reset(name)
       @cpi.kill_agents
-      @worker_processes.each(&:stop)
-      @director_process.stop
-      @health_monitor_process.stop
 
       Redis.new(host: 'localhost', port: redis_port).flushdb
 
-      @database.drop_db if @database_created
-      @database_created = true
-
-      @database.create_db
-      @database_migrator.migrate
+      @database.truncate_db
 
       FileUtils.rm_rf(blobstore_storage_dir)
       FileUtils.mkdir_p(blobstore_storage_dir)
       FileUtils.rm_rf(director_tmp_path)
       FileUtils.mkdir_p(director_tmp_path)
 
-      File.open(File.join(director_tmp_path, 'state.json'), 'w') do |f|
-        f.write(Yajl::Encoder.encode('uuid' => DIRECTOR_UUID))
-      end
-
-      write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
-      write_in_sandbox(HM_CONFIG, load_config_template(HM_CONF_TEMPLATE))
-
-      @director_process.start
-      @worker_processes.each(&:start)
-
-      begin
-        # CI does not have enough time to start bosh-director
-        # for some parallel tests; increasing to 60 secs (= 300 tries).
-        @director_socket_connector.try_to_connect(300)
-      rescue
-        output_service_log(@director_process)
-        raise
-      end
+      reconfigure_director if director_configuration_changed?
     end
 
     def setup_sandbox_root
       write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
+      write_in_sandbox(DIRECTOR_NGINX_CONFIG, load_config_template(DIRECTOR_NGINX_CONF_TEMPLATE))
       write_in_sandbox(HM_CONFIG, load_config_template(HM_CONF_TEMPLATE))
       write_in_sandbox(REDIS_CONFIG, load_config_template(REDIS_CONF_TEMPLATE))
       write_in_sandbox(EXTERNAL_CPI, load_config_template(EXTERNAL_CPI_TEMPLATE))
       FileUtils.chmod(0755, sandbox_path(EXTERNAL_CPI))
       FileUtils.mkdir_p(sandbox_path('redis'))
       FileUtils.mkdir_p(blobstore_storage_dir)
+    end
+
+    def director_configuration_changed?
+      read_from_sandbox(DIRECTOR_CONFIG) != load_config_template(DIRECTOR_CONF_TEMPLATE)
+    end
+
+    def read_from_sandbox(filename)
+      Dir.chdir(sandbox_root) do
+        File.read(filename)
+      end
     end
 
     def write_in_sandbox(filename, contents)

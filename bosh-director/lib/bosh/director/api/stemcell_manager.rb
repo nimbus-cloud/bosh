@@ -1,4 +1,4 @@
-# Copyright (c) 2009-2012 VMware, Inc.
+require 'securerandom'
 
 module Bosh::Director
   module Api
@@ -21,23 +21,16 @@ module Bosh::Director
         false
       end
 
-      def create_stemcell(user, stemcell, options = {})
-        if options[:remote]
-          stemcell_file = stemcell
-        else
-          random_name = "stemcell-#{SecureRandom.uuid}"
-          stemcell_dir = Dir::tmpdir
-          stemcell_file = File.join(stemcell_dir, random_name)
+      def create_stemcell_from_url(user, stemcell_url)
+        JobQueue.new.enqueue(user, Jobs::UpdateStemcell, 'create stemcell', [stemcell_url, { remote: true }])
+      end
 
-          unless check_available_disk_space(stemcell_dir, stemcell.size)
-            raise NotEnoughDiskSpace, "Uploading stemcell archive failed. " +
-              "Insufficient space on BOSH director in #{stemcell_dir}"
-          end
-          
-          write_file(stemcell_file, stemcell)
+      def create_stemcell_from_file_path(user, stemcell_path)
+        unless File.exists?(stemcell_path)
+          raise DirectorError, "Failed to create stemcell: file not found - #{stemcell_path}"
         end
 
-        JobQueue.new.enqueue(user, Jobs::UpdateStemcell, 'create stemcell', [stemcell_file, options])
+        JobQueue.new.enqueue(user, Jobs::UpdateStemcell, 'create stemcell', [stemcell_path])
       end
 
       def delete_stemcell(user, stemcell, options={})

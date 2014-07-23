@@ -1,7 +1,7 @@
 require 'digest/sha1'
 require 'fileutils'
 require 'securerandom'
-require 'logger'
+require 'mono_logger'
 
 module Bosh
   module Clouds
@@ -25,7 +25,7 @@ module Bosh
 
         @running_vms_dir = File.join(@base_dir, 'running_vms')
 
-        @logger = Logger.new(options['log_device'] || STDOUT)
+        @logger = MonoLogger.new(options['log_device'] || STDOUT)
 
         @commands = CommandTransport.new(@base_dir, @logger)
 
@@ -91,8 +91,13 @@ module Bosh
 
       def configure_networks(vm_id, networks)
         cmd = commands.next_configure_networks_cmd(vm_id)
-        raise NotSupported, 'Dummy CPI was configured to return NotSupported' if cmd.not_supported
-        raise NotImplemented, 'Dummy CPI does not implement configure_networks'
+
+        # The only configure_networks test so far only tests the negative case.
+        # If a positive case is added, the agent will need to be re-started.
+        # Normally runit would handle that.
+        if cmd.not_supported || true
+          raise NotSupported, 'Dummy CPI was configured to return NotSupported'
+        end
       end
 
       def attach_disk(vm_id, disk_id)
@@ -278,12 +283,12 @@ module Bosh
           @logger.info('Reading create_vm configuration')
           always_path = File.join(@cpi_commands, 'create_vm', 'always')
           ip_address = File.read(always_path) if File.exists?(always_path)
-          CreareVmCommand.new(ip_address)
+          CreateVmCommand.new(ip_address)
         end
       end
 
       class ConfigureNetworksCommand < Struct.new(:not_supported); end
-      class CreareVmCommand < Struct.new(:ip_address); end
+      class CreateVmCommand < Struct.new(:ip_address); end
     end
   end
 end
