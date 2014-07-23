@@ -13,8 +13,9 @@ debconf="debconf debconf/frontend select noninteractive"
 run_in_chroot $chroot "echo ${debconf} | debconf-set-selections"
 
 # Install base debs needed by munin
-debs="munin-node libdbd-pg-perl"
+debs="munin-node libdbd-pg-perl libdbi-perl"
 # libdbd-pg-perl needed by postgresql
+# libdbi-perl needed by the postgresql munin plugins
 
 pkg_mgr install $debs
 
