@@ -83,11 +83,12 @@ module Bosh::Agent
         # FIXME: assumption right now: if apply succeeds state should be
         # identical with apply spec
         Bosh::Agent::Config.state.write(@new_spec)
-        @new_spec
         
         if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"]
           Bosh::Agent::Drbd.drbd_startup 
         end
+        
+        @new_spec
 
       rescue Bosh::Agent::StateError => e
         raise Bosh::Agent::MessageHandlerError, e
