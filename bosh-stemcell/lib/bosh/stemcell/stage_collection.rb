@@ -220,15 +220,15 @@ module Bosh::Stemcell
         :system_vsphere_cdrom,
         # Misc
         :system_parameters,
+        # customisations
+        :utils,
+        :munin,
+        :nagios,
+        :root_certificate,
+        :drbd,
         # Finalisation
         :bosh_clean,
         :bosh_harden,
-        # customisations
-	:utils,
-        :munin,
-	:nagios,
-        :root_certificate,
-	:drbd,
         # Image/bootloader
         :image_create,
         :image_install_grub,
