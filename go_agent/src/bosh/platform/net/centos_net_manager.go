@@ -5,10 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
-	"time"
 
 	bosherr "bosh/errors"
 	boshlog "bosh/logger"
+	bosharp "bosh/platform/net/arp"
+	boship "bosh/platform/net/ip"
 	boshsettings "bosh/settings"
 	boshsys "bosh/system"
 )
@@ -18,45 +19,41 @@ const centosNetManagerLogTag = "centosNetManager"
 type centosNetManager struct {
 	DefaultNetworkResolver
 
-	fs              boshsys.FileSystem
-	cmdRunner       boshsys.CmdRunner
-	routesSearcher  RoutesSearcher
-	arpWaitInterval time.Duration
-	logger          boshlog.Logger
+	fs                 boshsys.FileSystem
+	cmdRunner          boshsys.CmdRunner
+	routesSearcher     RoutesSearcher
+	ipResolver         boship.IPResolver
+	addressBroadcaster bosharp.AddressBroadcaster
+	logger             boshlog.Logger
 }
 
 func NewCentosNetManager(
 	fs boshsys.FileSystem,
 	cmdRunner boshsys.CmdRunner,
 	defaultNetworkResolver DefaultNetworkResolver,
-	arpWaitInterval time.Duration,
+	ipResolver boship.IPResolver,
+	addressBroadcaster bosharp.AddressBroadcaster,
 	logger boshlog.Logger,
 ) centosNetManager {
 	return centosNetManager{
 		DefaultNetworkResolver: defaultNetworkResolver,
-		fs:              fs,
-		cmdRunner:       cmdRunner,
-		arpWaitInterval: arpWaitInterval,
-		logger:          logger,
+		fs:                 fs,
+		cmdRunner:          cmdRunner,
+		ipResolver:         ipResolver,
+		addressBroadcaster: addressBroadcaster,
+		logger:             logger,
 	}
 }
 
-func (net centosNetManager) getDNSServers(networks boshsettings.Networks) []string {
-	dnsNetwork, _ := networks.DefaultNetworkFor("dns")
-	return dnsNetwork.DNS
-}
-
-func (net centosNetManager) SetupDhcp(networks boshsettings.Networks) error {
-	dnsNetwork, _ := networks.DefaultNetworkFor("dns")
-
-	type dhcpConfigArg struct {
-		DNSServers []string
-	}
-
+func (net centosNetManager) SetupDhcp(networks boshsettings.Networks, errCh chan error) error {
 	buffer := bytes.NewBuffer([]byte{})
 	t := template.Must(template.New("dhcp-config").Parse(centosDHCPConfigTemplate))
 
-	err := t.Execute(buffer, dhcpConfigArg{dnsNetwork.DNS})
+	// Keep DNS servers in the order specified by the network
+	// because they are added by a *single* DHCP's prepend command
+	dnsNetwork, _ := networks.DefaultNetworkFor("dns")
+	dnsServersList := strings.Join(dnsNetwork.DNS, ", ")
+	err := t.Execute(buffer, dnsServersList)
 	if err != nil {
 		return bosherr.WrapError(err, "Generating config from template")
 	}
@@ -69,6 +66,19 @@ func (net centosNetManager) SetupDhcp(networks boshsettings.Networks) error {
 	if written {
 		net.restartNetwork()
 	}
+
+	addresses := []boship.InterfaceAddress{
+		// eth0 is hard coded in AWS and OpenStack stemcells.
+		// TODO: abstract hardcoded network interface name to the NetManager
+		boship.NewResolvingInterfaceAddress("eth0", net.ipResolver),
+	}
+
+	go func() {
+		net.addressBroadcaster.BroadcastMACAddresses(addresses)
+		if errCh != nil {
+			errCh <- nil
+		}
+	}()
 
 	return err
 }
@@ -84,9 +94,9 @@ request subnet-mask, broadcast-address, time-offset, routers,
 	domain-name, domain-name-servers, domain-search, host-name,
 	netbios-name-servers, netbios-scope, interface-mtu,
 	rfc3442-classless-static-routes, ntp-servers;
-
-{{ range .DNSServers }}prepend domain-name-servers {{ . }};
-{{ end }}`
+{{ if . }}
+prepend domain-name-servers {{ . }};{{ end }}
+`
 
 func (net centosNetManager) SetupManualNetworking(networks boshsettings.Networks, errCh chan error) error {
 	modifiedNetworks, err := net.writeIfcfgs(networks)
@@ -101,30 +111,16 @@ func (net centosNetManager) SetupManualNetworking(networks boshsettings.Networks
 		return bosherr.WrapError(err, "Writing resolv.conf")
 	}
 
-	go net.gratuitiousArp(modifiedNetworks, errCh)
+	addresses := toInterfaceAddresses(modifiedNetworks)
+
+	go func() {
+		net.addressBroadcaster.BroadcastMACAddresses(addresses)
+		if errCh != nil {
+			errCh <- nil
+		}
+	}()
 
 	return nil
-}
-
-func (net centosNetManager) gratuitiousArp(networks []customNetwork, errCh chan error) {
-	for i := 0; i < 6; i++ {
-		for _, network := range networks {
-			for !net.fs.FileExists(filepath.Join("/sys/class/net", network.Interface)) {
-				time.Sleep(100 * time.Millisecond)
-			}
-
-			_, _, _, err := net.cmdRunner.RunCommand("arping", "-c", "1", "-U", "-I", network.Interface, network.IP)
-			if err != nil {
-				net.logger.Info(centosNetManagerLogTag, "Ignoring arping failure: %#v", err)
-			}
-
-			time.Sleep(net.arpWaitInterval)
-		}
-	}
-
-	if errCh != nil {
-		errCh <- nil
-	}
 }
 
 func (net centosNetManager) writeIfcfgs(networks boshsettings.Networks) ([]customNetwork, error) {
@@ -180,8 +176,10 @@ func (net centosNetManager) writeResolvConf(networks boshsettings.Networks) erro
 	buffer := bytes.NewBuffer([]byte{})
 	t := template.Must(template.New("resolv-conf").Parse(centosResolvConfTemplate))
 
-	dnsServers := net.getDNSServers(networks)
-	dnsServersArg := dnsConfigArg{dnsServers}
+	// Keep DNS servers in the order specified by the network
+	dnsNetwork, _ := networks.DefaultNetworkFor("dns")
+	dnsServersArg := dnsConfigArg{dnsNetwork.DNS}
+
 	err := t.Execute(buffer, dnsServersArg)
 	if err != nil {
 		return bosherr.WrapError(err, "Generating config from template")

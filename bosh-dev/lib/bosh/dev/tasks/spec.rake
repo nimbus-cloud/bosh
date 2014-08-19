@@ -2,20 +2,27 @@ require 'rspec'
 require 'tempfile'
 require 'rspec/core/rake_task'
 require 'bosh/dev/bat_helper'
+require 'bosh/dev/sandbox/nginx'
 require 'common/thread_pool'
 require 'parallel_tests/tasks'
 
 namespace :spec do
   namespace :integration do
     desc 'Run BOSH integration tests against a local sandbox with Ruby agent'
-    task :ruby_agent do
+    task :ruby_agent => :install_dependencies do
       run_integration_specs('ruby')
     end
 
     desc 'Run BOSH integration tests against a local sandbox with Go agent'
-    task :go_agent do
+    task :go_agent => :install_dependencies do
       sh('go_agent/bin/build')
       run_integration_specs('go')
+    end
+
+    desc 'Install BOSH integration test dependencies (currently Nginx)'
+    task :install_dependencies do
+      nginx = Bosh::Dev::Sandbox::Nginx.new
+      nginx.install
     end
 
     def run_integration_specs(agent_type)
@@ -28,7 +35,7 @@ namespace :spec do
     end
   end
 
-  task :integration => %w(spec:integration:ruby_agent)
+  task :integration => %w(spec:integration:go_agent)
 
   namespace :unit do
     desc 'Run unit tests for each BOSH component gem in parallel'
@@ -36,22 +43,24 @@ namespace :spec do
       trap('INT') { exit }
 
       builds = Dir['*'].select { |f| File.directory?(f) && File.exists?("#{f}/spec") }
-      builds -= ['bat']
+      builds -= %w(bat)
 
-      cpi_builds = Dir['*'].select { |f| File.directory?(f) && f.end_with?("_cpi") }
+      cpi_builds = builds.select { |f| File.directory?(f) && f.end_with?("_cpi") }
 
       spec_logs = Dir.mktmpdir
 
       puts "Logging spec results in #{spec_logs}"
 
-      Bosh::ThreadPool.new(max_threads: 10, logger: Logger.new('/dev/null')).wrap do |pool|
+      max_threads = ENV.fetch('BOSH_MAX_THREADS', 10).to_i
+      Bosh::ThreadPool.new(max_threads: max_threads, logger: Logger.new('/dev/null')).wrap do |pool|
         builds.each do |build|
           pool.process do
             log_file    = "#{spec_logs}/#{build}.log"
             rspec_files = cpi_builds.include?(build) ? "spec/unit/" : "spec/"
             rspec_cmd   = "rspec --tty -c -f p #{rspec_files}"
 
-            if system("cd #{build} && #{rspec_cmd} > #{log_file} 2>&1")
+            # inject command name so coverage results for each component don't clobber others
+            if system({'BOSH_BUILD_NAME' => build}, "cd #{build} && #{rspec_cmd} > #{log_file} 2>&1")
               puts "----- BEGIN #{build}"
               puts "           #{rspec_cmd}"
               print File.read(log_file)

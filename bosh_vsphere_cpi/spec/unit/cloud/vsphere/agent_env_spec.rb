@@ -19,6 +19,33 @@ module VSphereCloud
     end
 
     describe '#get_current_env' do
+      let(:vm) { instance_double('VimSdk::Vim::Vm') }
+
+      before do
+        allow(client).to receive(:get_cdrom_device).with(vm).and_return(cdrom_device)
+      end
+
+      let(:cdrom_device) do
+        instance_double(
+          'VimSdk::Vim::Vm::Device::VirtualCdrom',
+          backing: cdrom_backing
+        )
+      end
+
+      before do
+        allow(cdrom_device).to receive(:kind_of?).
+          with(VimSdk::Vim::Vm::Device::VirtualCdrom).and_return(true)
+      end
+
+      let(:cdrom_backing) do
+        instance_double('VimSdk::Vim::Vm::Device::VirtualCdrom::IsoBackingInfo',
+          datastore: cdrom_datastore,
+          file_name: '[fake-datastore-name 1] fake-vm-name/env.iso'
+        )
+      end
+
+      let(:cdrom_datastore) { instance_double('VimSdk::Vim::Datastore', name: 'fake-datastore-name 1') }
+
       it 'gets current agent environment from fetched file' do
         expect(file_provider).to receive(:fetch_file).with(
           'fake-datacenter-name 1',
@@ -26,37 +53,70 @@ module VSphereCloud
           'fake-vm-name/env.json',
         ).and_return('{"fake-response-json" : "some-value"}')
 
-        expect(agent_env.get_current_env(location)).to eq({'fake-response-json' => 'some-value'})
+        expect(agent_env.get_current_env(vm, 'fake-datacenter-name 1')).to eq({'fake-response-json' => 'some-value'})
+      end
+
+      it 'raises if env.json is empty' do
+        allow(file_provider).to receive(:fetch_file).with(
+          'fake-datacenter-name 1',
+          'fake-datastore-name 1',
+          'fake-vm-name/env.json',
+        ).and_return(nil)
+
+        expect {
+          agent_env.get_current_env(vm, 'fake-datacenter-name 1')
+        }.to raise_error(Bosh::Clouds::CloudError)
       end
     end
 
     describe '#set_env' do
-      let(:vm) { instance_double('VimSdk::Vim::VirtualMachine') }
-      let(:config_spec) { instance_double('VimSdk::Vim::Vm::ConfigSpec') }
-      before { allow(VimSdk::Vim::Vm::ConfigSpec).to receive(:new).and_return(config_spec) }
-
-      let(:device_config_spec) { instance_double('VimSdk::Vim::Vm::Device::VirtualDeviceSpec') }
-      before { allow(VimSdk::Vim::Vm::Device::VirtualDeviceSpec).to receive(:new).and_return(device_config_spec) }
+      let(:vm) do
+        instance_double('VimSdk::Vim::VirtualMachine',
+          config: double(:config, hardware: double(:hardware, device: [cdrom]))
+        )
+      end
 
       let(:env) { ['fake-json'] }
+      let(:cdrom_connectable_connected) { true }
 
-      let(:cdrom_connectable) { double(:connectable, connected: true) }
-      let(:cdrom) { instance_double('VimSdk::Vim::Vm::Device::VirtualCdrom', connectable: cdrom_connectable) }
+      let(:cdrom) do
+        VimSdk::Vim::Vm::Device::VirtualCdrom.new(
+          connectable: VimSdk::Vim::Vm::Device::VirtualDevice::ConnectInfo.new(
+            connected: cdrom_connectable_connected
+          ),
+          backing: cdrom_backing
+        )
+      end
+
+      let(:cdrom_backing) do
+        VimSdk::Vim::Vm::Device::VirtualCdrom::IsoBackingInfo.new(
+          file_name: '[fake-old-datastore-name 1] fake-vm-name/env.iso'
+        )
+      end
+
+      let(:datacenter) { instance_double('VimSdk::Vim::Datacenter') }
+      let(:vm_datastore) { instance_double('VimSdk::Vim::Datastore') }
       before do
         allow(cdrom).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualCdrom).and_return(true)
-        allow(client).to receive(:get_property).with(
-          vm, VimSdk::Vim::VirtualMachine, 'config.hardware.device', ensure_all: true
-        ).and_return([cdrom])
+        allow(client).to receive(:get_cdrom_device).with(vm).and_return(cdrom)
+        allow(client).to receive(:find_parent).with(vm, VimSdk::Vim::Datacenter).and_return(datacenter)
+        allow(client).to receive(:get_managed_object).with(VimSdk::Vim::Datastore, name: 'fake-datastore-name 1').
+          and_return(vm_datastore)
       end
 
       def it_disconnects_cdrom
-        expect(cdrom_connectable).to receive(:connected=).with(false) do
-          allow(cdrom_connectable).to receive(:connected).and_return(false)
-        end.ordered
-        expect(device_config_spec).to receive(:device=).with(cdrom).ordered
-        expect(device_config_spec).to receive(:operation=).with(VimSdk::Vim::Vm::Device::VirtualDeviceSpec::Operation::EDIT).ordered
-        expect(config_spec).to receive(:device_change=).with([device_config_spec]).ordered
-        expect(client).to receive(:reconfig_vm).with(vm, config_spec)
+        expect(client).to receive(:reconfig_vm) do |reconfig_vm, config_spec|
+          expect(reconfig_vm).to eq(vm)
+          device_changes = config_spec.device_change
+          expect(device_changes.size).to eql(1)
+          cdrom_change = device_changes.first
+          expect(cdrom_change.device.connectable.connected).to eq(false)
+        end
+      end
+
+      def it_cleans_up_old_env_files
+        expect(client).to receive(:delete_path).with(datacenter, '[fake-old-datastore-name 1] fake-vm-name/env.json')
+        expect(client).to receive(:delete_path).with(datacenter, '[fake-old-datastore-name 1] fake-vm-name/env.iso')
       end
 
       def it_uploads_environment_json(code = 204)
@@ -93,41 +153,38 @@ module VSphereCloud
         ).and_return(double(:response, code: 204))
       end
 
-      def it_connects_cdrom
-        expect(cdrom_connectable).to receive(:connected=).with(true) do
-          allow(cdrom_connectable).to receive(:connected).and_return(true)
+      def it_reconfigures_cdrom
+        expect(client).to receive(:reconfig_vm) do |reconfig_vm, config_spec|
+          expect(reconfig_vm).to eq(vm)
+          device_changes = config_spec.device_change
+          expect(device_changes.size).to eql(1)
+          cdrom_change = device_changes.first
+          expect(cdrom_change.device.connectable.connected).to eq(true)
+          expect(cdrom_change.device.backing.datastore).to eq(vm_datastore)
+          expect(cdrom_change.device.backing.file_name).to eq('[fake-datastore-name 1] fake-vm-name/env.iso')
         end
-        expect(device_config_spec).to receive(:device=).with(cdrom).ordered
-        expect(device_config_spec).to receive(:operation=).with(VimSdk::Vim::Vm::Device::VirtualDeviceSpec::Operation::EDIT).ordered
-        expect(config_spec).to receive(:device_change=).with([device_config_spec]).ordered
-        expect(client).to receive(:reconfig_vm).with(vm, config_spec)
       end
 
-      it 'disconnects cdrom, uploads envrionment json, uploads environment iso and connectes cdrom' do
+      it 'disconnects cdrom, cleans up old env files, uploads environment json, uploads environment iso and connectes cdrom' do
         it_disconnects_cdrom.ordered
-
+        it_cleans_up_old_env_files.ordered
         it_uploads_environment_json.ordered
-
         it_generates_environment_iso.ordered
-
         it_uploads_environment_iso.ordered
-
-        it_connects_cdrom.ordered
+        it_reconfigures_cdrom.ordered
 
         agent_env.set_env(vm, location, env)
       end
 
       context 'when cdrom is disconnected' do
-        before { allow(cdrom_connectable).to receive(:connected).and_return(false) }
+        let(:cdrom_connectable_connected) { false }
 
         it 'does not disconnect cdrom' do
+          it_cleans_up_old_env_files.ordered
           it_uploads_environment_json.ordered
-
           it_generates_environment_iso(iso_generator: 'genisoimage').ordered
-
           it_uploads_environment_iso.ordered
-
-          it_connects_cdrom.ordered
+          it_reconfigures_cdrom.ordered
 
           agent_env.set_env(vm, location, env)
         end
@@ -142,14 +199,11 @@ module VSphereCloud
 
         it 'uses genisoimage' do
           it_disconnects_cdrom.ordered
-
+          it_cleans_up_old_env_files.ordered
           it_uploads_environment_json.ordered
-
           it_generates_environment_iso(iso_generator: '/bin/genisoimage').ordered
-
           it_uploads_environment_iso.ordered
-
-          it_connects_cdrom.ordered
+          it_reconfigures_cdrom.ordered
 
           agent_env.set_env(vm, location, env)
         end
@@ -164,14 +218,11 @@ module VSphereCloud
 
         it 'uses mkisofs' do
           it_disconnects_cdrom.ordered
-
+          it_cleans_up_old_env_files.ordered
           it_uploads_environment_json.ordered
-
           it_generates_environment_iso(iso_generator: '/bin/mkisofs').ordered
-
           it_uploads_environment_iso.ordered
-
-          it_connects_cdrom.ordered
+          it_reconfigures_cdrom.ordered
 
           agent_env.set_env(vm, location, env)
         end
@@ -182,6 +233,7 @@ module VSphereCloud
 
         it 'retries and raises an error' do
           it_disconnects_cdrom.ordered
+          it_cleans_up_old_env_files.ordered
 
           expect {
             agent_env.set_env(vm, location, env)
@@ -194,7 +246,7 @@ module VSphereCloud
 
         it 'raises an error' do
           it_disconnects_cdrom.ordered
-
+          it_cleans_up_old_env_files.ordered
           it_uploads_environment_json.ordered
 
           expect {
@@ -202,31 +254,23 @@ module VSphereCloud
           }.to raise_error
         end
       end
-    end
 
-    describe '#configure_env_cdrom' do
-      let(:backing_info) { instance_double('VimSdk::Vim::Vm::Device::VirtualCdrom::IsoBackingInfo') }
-      before { allow(VimSdk::Vim::Vm::Device::VirtualCdrom::IsoBackingInfo).to receive(:new).and_return(backing_info) }
+      context 'when the cdrom backing is without file backing' do
+        let(:cdrom_backing) do
+          VimSdk::Vim::Vm::Device::VirtualCdrom::AtapiBackingInfo.new
+        end
 
-      let(:connect_info) { instance_double('VimSdk::Vim::Vm::Device::VirtualDevice::ConnectInfo') }
-      before { allow(VimSdk::Vim::Vm::Device::VirtualDevice::ConnectInfo).to receive(:new).and_return(connect_info) }
+        it 'does not clean up the env files' do
+          it_disconnects_cdrom.ordered
+          it_uploads_environment_json.ordered
+          it_generates_environment_iso.ordered
+          it_uploads_environment_iso.ordered
+          it_reconfigures_cdrom.ordered
 
-      let(:datastore) { instance_double('VSphereCloud::Resources::Datastore') }
-      let(:device) { instance_double('VimSdk::Vim::Vm::Device::VirtualCdrom') }
-      before { allow(device).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualCdrom).and_return(true) }
+          expect(client).not_to receive(:delete_path)
 
-      it 'configures env cdrom' do
-        expect(backing_info).to receive(:datastore=)
-        expect(backing_info).to receive(:file_name=).with('fake-file-name')
-
-        expect(connect_info).to receive(:allow_guest_control=).with(false)
-        expect(connect_info).to receive(:start_connected=).with(true)
-        expect(connect_info).to receive(:connected=).with(true)
-
-        expect(device).to receive(:connectable=).with(connect_info)
-        expect(device).to receive(:backing=).with(backing_info)
-
-        agent_env.configure_env_cdrom(datastore, [device], 'fake-file-name')
+          agent_env.set_env(vm, location, env)
+        end
       end
     end
   end

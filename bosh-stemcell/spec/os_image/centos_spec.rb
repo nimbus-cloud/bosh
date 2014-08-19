@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe 'CentOS OS image' do
+describe 'CentOS OS image', os_image: true do
   it_behaves_like 'an OS image'
 
   describe package('apt') do
@@ -36,7 +36,7 @@ describe 'CentOS OS image' do
     end
   end
 
-  context 'installed by base_yum' do
+  context 'installed by base_centos_packages' do
     %w(
       upstart
       openssl-devel
