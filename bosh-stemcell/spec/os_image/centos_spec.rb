@@ -60,6 +60,11 @@ describe 'CentOS OS image', os_image: true do
       libxml2-devel
       libxslt
       libxslt-devel
+      lsof
+      nc
+      openssh-server
+      openssl-devel
+      parted
       psmisc
       unzip
       bison
