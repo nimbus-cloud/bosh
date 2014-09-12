@@ -6,7 +6,29 @@ module Bosh::Agent
     class << self
       attr_accessor :enabled
 
+      def start_dns_updates
+        unless $dns_timer
+          Config.logger.info("Scheduling dynamic DNS updates")
+          $dns_timer = EM.add_periodic_timer(60) do
+            update_dns_servers
+          end
+        end
+        update_dns_servers
+      end
+      
+      def stop_dns_updates
+        Config.logger.info("Disabled dynamic DNS updates")
+        $dns_timer.cancel if $dns_timer
+        $dns_timer = nil
+      end
+      
       def update_dns_servers
+        
+        if Bosh::Agent::Config.state and Config.state["passive"].to_s == "enabled"
+          Bosh::Agent::Config.logger.info "Not updating dynamic dns as I'm passive"
+          return
+        end
+        
         state = Bosh::Agent::Config.state
         properties = state["properties"]
        

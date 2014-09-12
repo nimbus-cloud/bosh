@@ -78,6 +78,10 @@ module Bosh::Agent
           sleep 0.1
           retry
         end
+        
+        if Config.state and Config.state["dns_register_on_start"]
+          Bosh::Agent::Dns.start_dns_updates()
+        end
 
         setup_heartbeats
 
@@ -451,7 +455,7 @@ module Bosh::Agent
           end
           
           if Bosh::Agent::Config.state and Bosh::Agent::Config.state["dns_register_on_start"]
-            Bosh::Agent::Dns.update_dns_servers()
+            Bosh::Agent::Dns.start_dns_updates()
           end
           
           Bosh::Agent::Monit.start_services
@@ -474,6 +478,8 @@ module Bosh::Agent
 
         if Config.configure
           Bosh::Agent::Monit.stop_services
+          
+          Bosh::Agent::Dns.stop_dns_updates()
 
           mountpoint = File.join(Bosh::Agent::Config.base_dir, 'store')
           if Bosh::Agent::Config.state and Bosh::Agent::Config.state["drbd_enabled"] 
