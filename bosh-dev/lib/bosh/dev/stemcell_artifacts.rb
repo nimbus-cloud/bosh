@@ -5,9 +5,8 @@ module Bosh::Dev
   class StemcellArtifacts
     def self.all(version)
       definitions = [
-        Bosh::Stemcell::Definition.for('vsphere', 'ubuntu', 'lucid', 'ruby'),
         Bosh::Stemcell::Definition.for('vsphere', 'ubuntu', 'lucid', 'go'),
-        Bosh::Stemcell::Definition.for('vsphere', 'centos', nil, 'ruby'),
+        Bosh::Stemcell::Definition.for('vsphere', 'ubuntu', 'trusty', 'go'),
         Bosh::Stemcell::Definition.for('vsphere', 'centos', nil, 'go'),
 
         Bosh::Stemcell::Definition.for('aws', 'ubuntu', 'lucid', 'ruby'),
@@ -17,8 +16,8 @@ module Bosh::Dev
         Bosh::Stemcell::Definition.for('aws', 'centos', nil, 'go'),
 
         # Go agent is not ready yet for openstack
-        Bosh::Stemcell::Definition.for('openstack', 'ubuntu', 'lucid', 'ruby'),
-        Bosh::Stemcell::Definition.for('openstack', 'centos', nil, 'ruby'),
+        Bosh::Stemcell::Definition.for('openstack', 'ubuntu', 'lucid', 'go'),
+        Bosh::Stemcell::Definition.for('openstack', 'centos', nil, 'go'),
       ]
 
       new(version, definitions)

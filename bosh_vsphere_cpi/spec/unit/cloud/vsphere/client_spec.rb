@@ -17,8 +17,8 @@ module VSphereCloud
 
     before do
       fake_instance = double('service instance', content: fake_service_content)
-      VimSdk::Vim::ServiceInstance.stub(new: fake_instance)
-      fake_service_content.stub(search_index: fake_search_index)
+      allow(VimSdk::Vim::ServiceInstance).to receive(:new).and_return(fake_instance)
+      allow(fake_service_content).to receive(:search_index).and_return(fake_search_index)
     end
 
     describe '#initialize' do
@@ -95,39 +95,39 @@ module VSphereCloud
     describe '#find_by_inventory_path' do
       context 'given a string' do
         it 'passes the path to a SearchIndex object when path contains no slashes' do
-          fake_search_index.should_receive(:find_by_inventory_path).with('foobar')
+          expect(fake_search_index).to receive(:find_by_inventory_path).with('foobar')
           client.find_by_inventory_path("foobar")
         end
 
         it 'does not escape slashes into %2f' +
            'because we want to allow users to specify nested objects' do
-          fake_search_index.should_receive(:find_by_inventory_path).with('foo/bar')
+          expect(fake_search_index).to receive(:find_by_inventory_path).with('foo/bar')
           client.find_by_inventory_path("foo/bar")
         end
       end
 
       context 'given a flat array of strings' do
         it 'joins them with slashes' do
-          fake_search_index.should_receive(:find_by_inventory_path).with('foo/bar')
+          expect(fake_search_index).to receive(:find_by_inventory_path).with('foo/bar')
           client.find_by_inventory_path(['foo', 'bar'])
         end
 
         it 'does not escape slashes into %2f' +
            'because we want to allow users to specify nested objects' do
-          fake_search_index.should_receive(:find_by_inventory_path).with('foo/bar/baz')
+          expect(fake_search_index).to receive(:find_by_inventory_path).with('foo/bar/baz')
           client.find_by_inventory_path(['foo', 'bar/baz'])
         end
       end
 
       context 'given a nested array of strings' do
         it 'joins them with slashes recursively' do
-          fake_search_index.should_receive(:find_by_inventory_path).with('foo/bar/baz')
+          expect(fake_search_index).to receive(:find_by_inventory_path).with('foo/bar/baz')
           client.find_by_inventory_path(['foo', ['bar', 'baz']])
         end
 
         it 'does not escape slashes into %2f' +
            'because we want to allow users to specify nested objects' do
-          fake_search_index.should_receive(:find_by_inventory_path).with('foo/bar/baz/jaz')
+          expect(fake_search_index).to receive(:find_by_inventory_path).with('foo/bar/baz/jaz')
           client.find_by_inventory_path(['foo', ['bar', 'baz/jaz']])
         end
       end
@@ -167,6 +167,58 @@ module VSphereCloud
         expect(fake_service_content.root_folder).to receive(:move_into).with(things_to_move).and_return(task)
         expect(client).to receive(:wait_for_task).with(task)
         client.move_into_root_folder(things_to_move)
+      end
+    end
+
+    describe '#delete_path' do
+      let(:datacenter) { instance_double('VimSdk::Vim::Datacenter') }
+      let(:task) { instance_double('VimSdk::Vim::Task') }
+      let(:file_manager) { instance_double('VimSdk::Vim::FileManager') }
+
+      before do
+        allow(fake_service_content).to receive(:file_manager).and_return(file_manager)
+      end
+
+      context 'when the path exits' do
+        it 'calls delete_file on file manager' do
+          expect(client).to receive(:wait_for_task).with(task)
+
+          expect(file_manager).to receive(:delete_file).
+            with('[some-datastore] some/path', datacenter).
+            and_return(task)
+
+          client.delete_path(datacenter, '[some-datastore] some/path')
+        end
+      end
+
+      context 'when file manager raises "File not found" error' do
+        it 'does not raise error' do
+          expect(client).to receive(:wait_for_task).with(task).
+            and_raise(RuntimeError.new('File [some-datastore] some/path was not found'))
+
+          expect(file_manager).to receive(:delete_file).
+            with('[some-datastore] some/path', datacenter).
+            and_return(task)
+
+          expect {
+            client.delete_path(datacenter, '[some-datastore] some/path')
+          }.to_not raise_error
+        end
+      end
+
+      context 'when file manager raises other error' do
+        it 'raises that error' do
+          error = RuntimeError.new('Invalid datastore path some/path')
+          expect(client).to receive(:wait_for_task).with(task).
+            and_raise(error)
+          expect(file_manager).to receive(:delete_file).
+            with('some/path', datacenter).
+            and_return(task)
+
+          expect {
+            client.delete_path(datacenter, 'some/path')
+          }.to raise_error
+        end
       end
     end
 

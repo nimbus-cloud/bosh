@@ -6,8 +6,9 @@ module Bosh::Director
       include DnsHelper
       include ValidationHelper
 
-      def initialize(event_log)
+      def initialize(event_log, logger)
         @event_log = event_log
+        @logger = logger
       end
 
       # @param [Hash] manifest Raw deployment manifest
@@ -102,7 +103,7 @@ module Bosh::Director
       def parse_resource_pools
         resource_pools = safe_property(@manifest, 'resource_pools', :class => Array)
         resource_pools.each do |rp_spec|
-          @deployment.add_resource_pool(ResourcePool.new(@deployment, rp_spec))
+          @deployment.add_resource_pool(ResourcePool.new(@deployment, rp_spec, @logger))
         end
 
         # Uncomment when integration test fixed
@@ -117,7 +118,7 @@ module Bosh::Director
             job_spec.recursive_merge!(state_overrides)
           end
 
-          @deployment.add_job(Job.parse(@deployment, job_spec, @event_log))
+          @deployment.add_job(Job.parse(@deployment, job_spec, @event_log, @logger))
         end
       end
     end

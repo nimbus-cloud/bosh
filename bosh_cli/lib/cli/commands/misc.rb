@@ -1,9 +1,5 @@
-# Copyright (c) 2009-2012 VMware, Inc.
-
 module Bosh::Cli::Command
   class Misc < Base
-    DEFAULT_STATUS_TIMEOUT = 3 # seconds
-
     # bosh version
     usage "version"
     desc  "Show version"
@@ -275,47 +271,6 @@ module Bosh::Cli::Command
       end
     end
 
-    def print_specs(entity, dir)
-      specs = Dir[File.join(work_dir, dir, "*", "spec")]
-
-      if specs.empty?
-        say("No #{entity} specs found")
-      end
-
-      t = table %w(Name Dev Final)
-
-      specs.each do |spec_file|
-        if spec_file.is_a?(String) && File.file?(spec_file)
-          spec = load_yaml_file(spec_file)
-          name = spec["name"]
-
-          unless name.bosh_valid_id?
-            err("`#{name}' is an invalid #{entity} name, " +
-                "please fix before proceeding")
-          end
-
-          begin
-            dev_index   = Bosh::Cli::VersionsIndex.new(
-                File.join(work_dir, ".dev_builds", dir, name))
-            final_index = Bosh::Cli::VersionsIndex.new(
-                File.join(work_dir, ".final_builds", dir, name))
-
-            dev_version   = dev_index.latest_version || "n/a"
-            final_version = final_index.latest_version || "n/a"
-
-            t << [name, dev_version.gsub(/\-dev$/, "").rjust(8),
-                  final_version.to_s.rjust(8)]
-          rescue Bosh::Cli::InvalidIndex => e
-            say("Problem with #{entity} index for `#{name}': #{e.message}".make_red)
-          end
-        else
-          say("Spec file `#{spec_file}' is invalid")
-        end
-      end
-
-      say(t) unless t.rows.empty?
-    end
-
     def print_feature_list(features)
       if features.respond_to?(:each)
         features.each do |feature, info|
@@ -356,9 +311,7 @@ module Bosh::Cli::Command
     end
 
     def get_director_status
-      timeout(config.status_timeout || DEFAULT_STATUS_TIMEOUT) do
-        Bosh::Cli::Client::Director.new(target).get_status
-      end
+      Bosh::Cli::Client::Director.new(target).get_status
     end
   end
 end

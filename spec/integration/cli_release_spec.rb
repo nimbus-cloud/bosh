@@ -196,8 +196,8 @@ describe 'cli releases', type: :integration do
     expect(out).to match /bar\s*\(.*\)\s*UPLOAD/
     expect(out).to match /Release repacked/
     expect(out).to match /Started creating new packages > bar.*Done/
-    expect(out).to match /Started processing 2 existing packages > Processing 2 existing packages.*Done/
-    expect(out).to match /Started processing 2 existing jobs > Processing 2 existing jobs.*Done/
+    expect(out).to match /Started processing 3 existing packages > Processing 3 existing packages.*Done/
+    expect(out).to match /Started processing 3 existing jobs > Processing 3 existing jobs.*Done/
     expect(out).to match /Release uploaded/
 
     out = bosh_runner.run('releases')
@@ -375,6 +375,71 @@ describe 'cli releases', type: :integration do
     release_filename = spec_asset('release_invalid_checksum.tgz')
     out = bosh_runner.run("verify release #{release_filename}", failure_expected: true)
     expect(out).to match(regexp("`#{release_filename}' is not a valid release"))
+  end
+
+  it 'does include excluded files' do
+    Dir.chdir(TEST_RELEASE_DIR) do
+      release_tarball = File.join(TEST_RELEASE_DIR, 'dev_releases/bosh-release-0+dev.1.tgz')
+
+      FileUtils.rm_rf('dev_releases')
+
+      bosh_runner.run_in_current_dir('create release --with-tarball')
+      Dir.mktmpdir do |temp_dir|
+        `tar xzf #{release_tarball} -C #{temp_dir}`
+        foo_package = File.join(temp_dir, 'packages', 'foo.tgz')
+        release_file_list = `tar -tzf #{foo_package}`
+        expect(release_file_list).to_not include('excluded_file')
+        expect(release_file_list).to include('foo')
+      end
+    end
+  end
+
+  describe 'uploading a release that already exists' do
+    before { target_and_login }
+
+    context 'when the release is local' do
+      let(:local_release_path) { spec_asset('valid_release.tgz') }
+      before { bosh_runner.run("upload release #{local_release_path}") }
+
+      context 'when using the --skip-if-exists flag' do
+        it 'tells the user and does not exit as a failure' do
+          output = bosh_runner.run("upload release #{local_release_path} --skip-if-exists")
+          expect(output).to include("Release `appcloud/0.1' already exists. Skipping upload.")
+        end
+      end
+
+      context 'when NOT using the --skip-if-exists flag' do
+        it 'tells the user and does exit as a failure' do
+          output, exit_code = bosh_runner.run("upload release #{local_release_path}", {
+            failure_expected: true,
+            return_exit_code: true,
+          })
+          expect(output).to include('This release version has already been uploaded')
+          expect(exit_code).to eq(1)
+        end
+      end
+    end
+
+    context 'when the release is remote' do
+      let(:webserver) do
+        local_server_cmd = %W(rackup -b run(Rack::Directory.new('#{spec_asset('')}')))
+        Bosh::Dev::Sandbox::Service.new(local_server_cmd, {}, Logger.new(STDOUT))
+      end
+      before { webserver.start }
+      after { webserver.stop }
+
+      let(:remote_release_url) { 'http://localhost:9292/valid_release.tgz' }
+      before { bosh_runner.run("upload release #{remote_release_url}") }
+
+      it 'tells the user and does exit as a failure' do
+        output, exit_code = bosh_runner.run("upload release #{remote_release_url}", {
+          failure_expected: true,
+          return_exit_code: true,
+        })
+        expect(output).to include("Release `appcloud/0.1' already exists")
+        expect(exit_code).to eq(1)
+      end
+    end
   end
 
   def with_changed_release

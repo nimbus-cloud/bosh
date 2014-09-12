@@ -3,8 +3,6 @@ module Bosh::Director
     class ReleaseManager
       include ApiHelper
 
-      RELEASE_TGZ = 'release.tgz'
-
       # Finds release by name
       # @param [String] name Release name
       # @return [Models::Release]
@@ -48,21 +46,18 @@ module Bosh::Director
         release_version
       end
 
-      def create_release(user, release_bundle, options = {})
-        release_dir = Dir.mktmpdir('release')
+      def create_release_from_url(user, release_url, rebase)
+        options = { remote: true, rebase: rebase }
+        JobQueue.new.enqueue(user, Jobs::UpdateRelease, 'create release', [release_url, options])
+      end
 
-        if options['remote']
-          options['location'] = release_bundle
-        else
-          unless check_available_disk_space(release_dir, release_bundle.size)
-            raise NotEnoughDiskSpace, 'Uploading release archive failed. ' +
-              "Insufficient space on BOSH director in #{release_dir}"
-          end
-
-          write_file(File.join(release_dir, RELEASE_TGZ), release_bundle)
+      def create_release_from_file_path(user, release_path, rebase)
+        unless File.exists?(release_path)
+          raise DirectorError, "Failed to create release: file not found - #{release_path}"
         end
 
-        JobQueue.new.enqueue(user, Jobs::UpdateRelease, 'create release', [release_dir, options])
+        options = { rebase: rebase }
+        JobQueue.new.enqueue(user, Jobs::UpdateRelease, 'create release', [release_path, options])
       end
 
       def delete_release(user, release, options = {})

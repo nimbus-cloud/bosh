@@ -126,49 +126,19 @@ module Bosh::Director
       end
     end
 
-    describe 'POST', '/compiled_package_groups/import' do
-      let(:tar_data) { 'tar data' }
-
+    describe 'POST', '/compiled_package_groups/import (multipart)' do
       def perform
-        post '/compiled_package_groups/import', tar_data, {'CONTENT_TYPE' => 'application/x-compressed'}
+        post '/compiled_package_groups/import', { 'nginx_upload_path' => tar_path }, {'CONTENT_TYPE' => 'multipart/form-data'}
       end
 
-      before do
-        test_config = Psych.load(spec_asset('test-director-config.yml'))
-        Config.configure(test_config)
-      end
+      let(:tar_path) { "/tmp/archive-#{SecureRandom.uuid}.tgz" }
+      before { FileUtils.touch(tar_path) }
+      after { FileUtils.rm_f(tar_path) }
+
+      before { Config.configure(Psych.load(spec_asset('test-director-config.yml'))) }
 
       context 'authenticated access' do
-        let(:tar_data) { 'tar data' }
-
         before { authorize 'admin', 'admin' }
-
-        it 'writes the compiled packages export file' do
-          tempdir = Dir.mktmpdir
-          Dir.stub(:mktmpdir).and_return(tempdir)
-
-          perform
-
-          export_path = File.join(tempdir, 'compiled_packages_export.tgz')
-
-          expect(File.read(export_path)).to eq('tar data')
-          FileUtils.rm_r(tempdir)
-        end
-
-        it 'enqueues a task' do
-          File.stub(:open)
-          Dir.stub(:mktmpdir).and_return('/tmp/path')
-
-          task = instance_double('Bosh::Director::Models::Task', id: 1)
-
-          job_queue = instance_double('Bosh::Director::JobQueue')
-          JobQueue.stub(new: job_queue)
-
-          expect(job_queue).to receive(:enqueue).with('admin', Jobs::ImportCompiledPackages, 'import compiled packages',
-                                                      ['/tmp/path']).and_return(task)
-
-          perform
-        end
 
         it 'returns a task' do
           perform

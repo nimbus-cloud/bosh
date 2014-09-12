@@ -12,7 +12,7 @@ module VSphereCloud
     before do
       allow(Config).to receive(:build).with(config).and_return(cloud_config)
       allow(cloud_config).to receive(:client).and_return(client)
-      Cloud.any_instance.stub(:at_exit)
+      allow_any_instance_of(Cloud).to receive(:at_exit)
     end
 
     describe '#fix_device_unit_numbers' do
@@ -112,14 +112,14 @@ module VSphereCloud
 
       context 'the vm is found' do
         it 'returns true' do
-          vsphere_cloud.should_receive(:get_vm_by_cid).with(vm_id)
+          expect(vsphere_cloud).to receive(:get_vm_by_cid).with(vm_id)
           expect(vsphere_cloud.has_vm?(vm_id)).to be(true)
         end
       end
 
       context 'the vm is not found' do
         it 'returns false' do
-          vsphere_cloud.should_receive(:get_vm_by_cid).with(vm_id).and_raise(Bosh::Clouds::VMNotFound)
+          expect(vsphere_cloud).to receive(:get_vm_by_cid).with(vm_id).and_raise(Bosh::Clouds::VMNotFound)
           expect(vsphere_cloud.has_vm?(vm_id)).to be(false)
         end
       end
@@ -135,17 +135,26 @@ module VSphereCloud
       let(:stemcell_vm) { double('fake local stemcell') }
       let(:stemcell_id) { 'fake_stemcell_id' }
 
-      let(:datacenter) do
-        datacenter = double('fake datacenter', name: 'fake_datacenter')
-        datacenter.stub_chain(:template_folder, :name).and_return('fake_template_folder')
-        datacenter
+      let(:template_folder) do
+        double(:template_folder,
+          name: 'fake_template_folder',
+          mob: 'fake_template_folder_mob'
+        )
       end
+
+      let(:datacenter) do
+        double('fake datacenter',
+          name: 'fake_datacenter',
+          template_folder: template_folder
+        )
+      end
+
       let(:cluster) { double('fake cluster', datacenter: datacenter) }
       let(:datastore) { double('fake datastore') }
 
       context 'when stemcell vm is not found at the expected location' do
         it 'raises an error' do
-          client.stub(find_by_inventory_path: nil)
+          allow(client).to receive(:find_by_inventory_path).and_return(nil)
 
           expect {
             vsphere_cloud.replicate_stemcell(cluster, datastore, 'fake_stemcell_id')
@@ -155,8 +164,9 @@ module VSphereCloud
 
       context 'when stemcell vm resides on a different datastore' do
         before do
-          datastore.stub_chain(:mob, :__mo_id__).and_return('fake_datastore_managed_object_id')
-          client.stub(:find_by_inventory_path).with(
+          mob = double(:mob, __mo_id__: 'fake_datastore_managed_object_id')
+          allow(datastore).to receive(:mob).and_return(mob)
+          allow(client).to receive(:find_by_inventory_path).with(
             [
               cluster.datacenter.name,
               'vm',
@@ -165,11 +175,11 @@ module VSphereCloud
             ]
           ).and_return(stemcell_vm)
 
-          client.stub(:get_property).with(stemcell_vm, anything, 'datastore', anything).and_return('fake_stemcell_datastore')
+          allow(client).to receive(:get_property).with(stemcell_vm, anything, 'datastore', anything).and_return('fake_stemcell_datastore')
         end
 
         it 'searches for stemcell on all cluster datastores' do
-          client.should_receive(:find_by_inventory_path).with(
+          expect(client).to receive(:find_by_inventory_path).with(
             [
               cluster.datacenter.name,
               'vm',
@@ -185,8 +195,9 @@ module VSphereCloud
           let(:replicated_stemcell) { double('fake_replicated_stemcell') }
           let(:fake_task) { 'fake_task' }
 
+
           it 'replicates the stemcell' do
-            client.stub(:find_by_inventory_path).with(
+            allow(client).to receive(:find_by_inventory_path).with(
               [
                 cluster.datacenter.name,
                 'vm',
@@ -195,23 +206,23 @@ module VSphereCloud
               ]
             )
 
-            datacenter.stub_chain(:template_folder, :mob).and_return('fake_template_folder_mob')
-            cluster.stub_chain(:resource_pool, :mob).and_return('fake_resource_pool_mob')
-            stemcell_vm.stub(:clone).with(any_args).and_return(fake_task)
-            client.stub(:wait_for_task).with(fake_task).and_return(replicated_stemcell)
-            replicated_stemcell.stub(:create_snapshot).with(any_args).and_return(fake_task)
+            resource_pool = double(:resource_pool, mob: 'fake_resource_pool_mob')
+            allow(cluster).to receive(:resource_pool).and_return(resource_pool)
+            allow(stemcell_vm).to receive(:clone).with(any_args).and_return(fake_task)
+            allow(client).to receive(:wait_for_task).with(fake_task).and_return(replicated_stemcell)
+            allow(replicated_stemcell).to receive(:create_snapshot).with(any_args).and_return(fake_task)
 
-            vsphere_cloud.replicate_stemcell(cluster, datastore, stemcell_id).should eq(replicated_stemcell)
+            expect(vsphere_cloud.replicate_stemcell(cluster, datastore, stemcell_id)).to eql(replicated_stemcell)
           end
         end
       end
 
       context 'when stemcell resides on the given datastore' do
         it 'returns the found replica' do
-          client.stub(:find_by_inventory_path).with(any_args).and_return(stemcell_vm)
-          client.stub(:get_property).with(any_args).and_return(datastore)
-          datastore.stub(:mob).and_return(datastore)
-          vsphere_cloud.replicate_stemcell(cluster, datastore, stemcell_id).should eq(stemcell_vm)
+          allow(client).to receive(:find_by_inventory_path).with(any_args).and_return(stemcell_vm)
+          allow(client).to receive(:get_property).with(any_args).and_return(datastore)
+          allow(datastore).to receive(:mob).and_return(datastore)
+          expect(vsphere_cloud.replicate_stemcell(cluster, datastore, stemcell_id)).to eql(stemcell_vm)
         end
       end
     end
@@ -239,19 +250,29 @@ module VSphereCloud
       let(:path_finder) { instance_double('VSphereCloud::PathFinder') }
 
       before do
-        device.stub(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard) { true }
-        PathFinder.stub(:new).and_return(path_finder)
-        path_finder.stub(:path).with(any_args).and_return('fake_network1')
+        allow(device).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard) { true }
+        allow(PathFinder).to receive(:new).and_return(path_finder)
+        allow(path_finder).to receive(:path).with(any_args).and_return('fake_network1')
       end
 
       context 'using a distributed switch' do
-        let(:backing) { instance_double('VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo') }
+        let(:backing) do
+          port = double(:port, portgroup_key: 'fake_pgkey1')
+          instance_double(
+            'VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo',
+            port: port
+          )
+        end
+
+        before do
+          allow(backing).to receive(:kind_of?).
+            with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo).
+            and_return(true)
+        end
+
         let(:dvs_index) { { 'fake_pgkey1' => 'fake_network1' } }
 
         it 'generates the network env' do
-          backing.stub(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo) { true }
-          backing.stub_chain(:port, :portgroup_key) { 'fake_pgkey1' }
-
           expect(vsphere_cloud.generate_network_env(devices, networks, dvs_index)).to eq(expected_output)
         end
       end
@@ -260,7 +281,7 @@ module VSphereCloud
         let(:backing) { double(network: 'fake_network1') }
 
         it 'generates the network env' do
-          backing.stub(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo) { false }
+          allow(backing).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo) { false }
 
           expect(vsphere_cloud.generate_network_env(devices, networks, dvs_index)).to eq(expected_output)
         end
@@ -271,7 +292,7 @@ module VSphereCloud
         let(:backing) { double(network: 'fake_network1') }
 
         it 'ignores non VirtualEthernetCard devices' do
-          backing.stub(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo) { false }
+          allow(backing).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo) { false }
 
           expect(vsphere_cloud.generate_network_env(devices, networks, dvs_index)).to eq(expected_output)
         end
@@ -301,10 +322,10 @@ module VSphereCloud
           } }
 
           it 'generates the network env' do
-            PathFinder.stub(:new).and_return(path_finder)
-            path_finder.stub(:path).with(fake_network_object).and_return('networks/fake_network1')
+            allow(PathFinder).to receive(:new).and_return(path_finder)
+            allow(path_finder).to receive(:path).with(fake_network_object).and_return('networks/fake_network1')
 
-            backing.stub(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo) { false }
+            allow(backing).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualEthernetCard::DistributedVirtualPortBackingInfo) { false }
 
             expect(vsphere_cloud.generate_network_env(devices, networks, dvs_index)).to eq(expected_output)
           end
@@ -325,11 +346,11 @@ module VSphereCloud
         let(:portgroup_properties) { { 'config.distributedVirtualSwitch' => switch, 'config.key' => 'fake_portgroup_key' } }
 
         before do
-          client.stub(:get_properties).with(network, VimSdk::Vim::Dvs::DistributedVirtualPortgroup,
+          allow(client).to receive(:get_properties).with(network, VimSdk::Vim::Dvs::DistributedVirtualPortgroup,
                                             ['config.key', 'config.distributedVirtualSwitch'],
                                             ensure_all: true).and_return(portgroup_properties)
 
-          client.stub(:get_property).with(switch, VimSdk::Vim::DistributedVirtualSwitch,
+          allow(client).to receive(:get_property).with(switch, VimSdk::Vim::DistributedVirtualSwitch,
                                           'uuid', ensure_all: true).and_return('fake_switch_uuid')
         end
 
@@ -415,7 +436,7 @@ module VSphereCloud
       let(:template_subfolder) { double('fake template subfolder', child_entity: stemcells) }
       let(:stemcells) { ['fake stemcell 1', 'fake stemcell 2'] }
 
-      before { Resources.stub(:new).and_return(resources) }
+      before { allow(Resources).to receive(:new).and_return(resources) }
 
       it 'returns all vms in vm_folder of datacenter and all stemcells in template_folder' do
         expect(vsphere_cloud.get_vms).to eq(['fake vm 1', 'fake vm 2', 'fake stemcell 1', 'fake stemcell 2'])
@@ -721,6 +742,81 @@ module VSphereCloud
 
           expect(actual_device_changes.size).to eq(1)
           expect(actual_device_changes.first.file_operation).to eq(VimSdk::Vim::Vm::Device::VirtualDeviceSpec::FileOperation::CREATE)
+        end
+      end
+    end
+
+    describe '#delete_vm' do
+      let(:vm) { instance_double('VimSdk::Vim::VirtualMachine') }
+      before { allow(vsphere_cloud).to receive(:get_vm_by_cid).with('fake-vm-id').and_return(vm) }
+
+      let(:datacenter) { instance_double('VimSdk::Vim::Datacenter') }
+      before { allow(client).to receive(:find_parent).with(vm, VimSdk::Vim::Datacenter).and_return(datacenter) }
+
+      let(:devices) { [virtual_disk_device] }
+      before do
+        allow(client).to receive(:get_properties).with(
+          vm,
+          VimSdk::Vim::VirtualMachine,
+          ['runtime.powerState', 'runtime.question', 'config.hardware.device', 'name'],
+          ensure: ['config.hardware.device']
+        ).and_return(
+          {
+            'runtime.question' => false,
+            'runtime.powerState' => VimSdk::Vim::VirtualMachine::PowerState::POWERED_OFF,
+            'config.hardware.device' => devices,
+            'name' => 'fake-vm-name'
+          }
+        )
+        allow(client).to receive(:get_cdrom_device).and_return(nil)
+      end
+
+      let(:virtual_disk_device) { instance_double('VimSdk::Vim::Vm::Device::VirtualDisk', backing: virtual_disk_backing) }
+      before do
+        allow(virtual_disk_device).to receive(:kind_of?).and_return(false)
+        allow(virtual_disk_device).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualDisk).and_return(true)
+      end
+
+      let(:virtual_disk_backing) do
+        instance_double('VimSdk::Vim::Vm::Device::VirtualDisk::FlatVer2BackingInfo',
+          datastore: datastore,
+          disk_mode: VimSdk::Vim::Vm::Device::VirtualDiskOption::DiskMode::INDEPENDENT_NONPERSISTENT
+        )
+      end
+
+      let(:datastore) { instance_double('VimSdk::Vim::Datastore') }
+      before do
+        allow(client).to receive(:get_property).
+          with(datastore, VimSdk::Vim::Datastore, 'name').
+          and_return('fake-datastore-name')
+      end
+
+      it 'deletes vm' do
+        expect(client).to receive(:delete_vm).with(vm)
+        vsphere_cloud.delete_vm('fake-vm-id')
+      end
+
+      context 'vm has cdrom' do
+        let(:cdrom_device) { instance_double('VimSdk::Vim::Vm::Device::VirtualCdrom', backing: cdrom_backing) }
+        let(:cdrom_backing) do
+          instance_double('VimSdk::Vim::Vm::Device::VirtualCdrom::IsoBackingInfo',
+            file_name: '[fake-cdrom-datastore-name] some-vm-uuid/env.iso'
+          )
+        end
+        let(:devices) { [virtual_disk_device, cdrom_device] }
+
+        before do
+          allow(cdrom_device).to receive(:kind_of?).and_return(false)
+          allow(cdrom_device).to receive(:kind_of?).with(VimSdk::Vim::Vm::Device::VirtualCdrom).and_return(true)
+        end
+
+        before { allow(client).to receive(:get_cdrom_device).and_return(cdrom_device) }
+
+        before { allow(client).to receive(:delete_vm).with(vm) }
+
+        it 'cleans up the folder where ISO image is stored' do
+          expect(client).to receive(:delete_path).with(datacenter, '[fake-cdrom-datastore-name] some-vm-uuid')
+          vsphere_cloud.delete_vm('fake-vm-id')
         end
       end
     end

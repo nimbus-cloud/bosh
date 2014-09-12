@@ -32,16 +32,19 @@ module Bosh::Director
       # @return [Array<DeploymentPlan::IdleVm] List of allocated idle VMs
       attr_reader :allocated_vms
 
-      # @return [Integer] Number of active resource pool VMs
-      attr_reader :active_vm_count
+      # @return [Integer] Number of VMs reserved
+      attr_reader :reserved_capacity
 
       # @param [DeploymentPlan] deployment_plan Deployment plan
       # @param [Hash] spec Raw resource pool spec from the deployment manifest
-      def initialize(deployment_plan, spec)
+      # @param [Logger] logger Director logger
+      def initialize(deployment_plan, spec, logger)
         @deployment_plan = deployment_plan
 
+        @logger = logger
+
         @name = safe_property(spec, "name", :class => String)
-        @size = safe_property(spec, "size", :class => Integer)
+        @size = safe_property(spec, "size", :class => Integer, :optional => true)
 
         @cloud_properties =
           safe_property(spec, "cloud_properties", :class => Hash)
@@ -62,9 +65,8 @@ module Bosh::Director
 
         @idle_vms = []
         @allocated_vms = []
-        @active_vm_count = 0
-        @required_capacity = 0
-        @errand_capacity = 0
+        @reserved_capacity = 0
+        @reserved_errand_capacity = 0
       end
 
       # Returns resource pools spec as Hash (usually for agent to serialize)
@@ -77,7 +79,7 @@ module Bosh::Director
         }
       end
 
-      # Creates IdleVm objects for any missing resource pool VMs and reserves
+      # Creates idle VMs for any missing resource pool VMs and reserves
       # dynamic networks for all idle VMs.
       # @return [void]
       def process_idle_vms
@@ -101,59 +103,96 @@ module Bosh::Director
         reservation
       end
 
-      # Returns a number of VMs that need to be created in order to bring
-      # this resource pool to a desired size
-      # @return [Integer]
-      def missing_vm_count
-        @size - @active_vm_count - @idle_vms.size
-      end
-
-      # Adds a new VM to a list of managed idle VMs
+      # Adds a new VM to idle_vms
       def add_idle_vm
-        idle_vm = IdleVm.new(self)
+        @logger.info("ResourcePool `#{name}' - Adding idle VM (index=#{@idle_vms.size})")
+        idle_vm = Vm.new(self)
         @idle_vms << idle_vm
         idle_vm
       end
 
       def allocate_vm
-        allocated_vm = @idle_vms.pop
-        @allocated_vms << allocated_vm
-        allocated_vm
+        if @idle_vms.empty? && dynamically_sized?
+          vm = Vm.new(self)
+        else
+          vm = @idle_vms.pop
+          raise ResourcePoolNotEnoughCapacity, "Resource pool `#{@name}' has no more VMs to allocate" if vm.nil?
+        end
+
+        add_allocated_vm(vm)
       end
 
-      def deallocate_vm(idle_vm_cid)
-        deallocated_vm = @allocated_vms.find { |idle_vm| idle_vm.vm.cid == idle_vm_cid }
+      # Adds an existing VM to allocated_vms
+      def add_allocated_vm(vm=nil)
+        vm ||= Vm.new(self)
+        @logger.info("ResourcePool `#{name}' - Adding allocated VM (index=#{@allocated_vms.size})")
+        @allocated_vms << vm
+        vm
+      end
+
+      def deallocate_vm(vm_cid)
+        deallocated_vm = @allocated_vms.find { |vm| vm.model.cid == vm_cid }
+        if deallocated_vm.nil?
+          raise DirectorError, "Resource pool `#{@name}' does not contain an allocated VM with the cid `#{vm_cid}'"
+        end
+
+        @logger.info("ResourcePool `#{name}' - Deallocating VM: #{deallocated_vm.model.cid}")
         @allocated_vms.delete(deallocated_vm)
-        @idle_vms << deallocated_vm
-        deallocated_vm
+
+        add_idle_vm unless dynamically_sized? # don't refill if dynamically sized
+
+        nil
       end
 
-      # "Active" VM is a VM that is currently running a job
-      # @return [void]
-      def mark_active_vm
-        @active_vm_count += 1
-      end
-
-      # Checks if there is enough capacity to run extra N VMs,
+      # Checks if there is enough capacity to run _extra_ N VMs,
       # raise error if not enough capacity
       # @raise [ResourcePoolNotEnoughCapacity]
       # @return [void]
       def reserve_capacity(n)
-        @required_capacity += n
-        if @required_capacity > @size
+        needed = @reserved_capacity + n
+        if !dynamically_sized? && needed > @size
           raise ResourcePoolNotEnoughCapacity,
                 "Resource pool `#{@name}' is not big enough: " +
-                "#{@required_capacity} VMs needed, capacity is #{@size}"
+                "#{needed} VMs needed, capacity is #{@size}"
         end
+        @reserved_capacity = needed
       end
 
+      # Checks if there is enough capacity to run _up to_ N VMs,
+      # raise error if not enough capacity.
+      # Only enough capacity to run the largest errand is required,
+      # because errands can only run one at a time.
+      # @raise [ResourcePoolNotEnoughCapacity]
+      # @return [void]
       def reserve_errand_capacity(n)
-        needed = n - @errand_capacity
+        needed = n - @reserved_errand_capacity
 
         if needed > 0
           reserve_capacity(needed)
-          @errand_capacity = n
+          @reserved_errand_capacity = n
         end
+      end
+
+      # Returns a number of VMs that need to be deleted in order to bring
+      # this resource pool to the desired size
+      # @return [Integer]
+      def extra_vm_count
+        return @idle_vms.size if dynamically_sized?
+        @idle_vms.size + @allocated_vms.size - @size
+      end
+
+      private
+
+      def dynamically_sized?
+        @size.nil?
+      end
+
+      # Returns a number of VMs that need to be created in order to bring
+      # this resource pool to the desired size
+      # @return [Integer]
+      def missing_vm_count
+        return 0 if dynamically_sized?
+        @size - @allocated_vms.size - @idle_vms.size
       end
     end
   end

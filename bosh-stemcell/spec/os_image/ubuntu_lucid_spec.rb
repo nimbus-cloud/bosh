@@ -1,6 +1,6 @@
 require 'spec_helper'
 
-describe 'Ubuntu 10.04 OS image' do
+describe 'Ubuntu 10.04 OS image', os_image: true do
   it_behaves_like 'an OS image'
 
   describe package('apt') do
@@ -47,7 +47,6 @@ describe 'Ubuntu 10.04 OS image' do
       tzdata
       ubuntu-keyring
       udev
-      upstart
       ureadahead
       vim-tiny
       whiptail
@@ -62,12 +61,32 @@ describe 'Ubuntu 10.04 OS image' do
       it { should contain 'DISTRIB_RELEASE=10.04' }
       it { should contain 'DISTRIB_CODENAME=lucid' }
     end
+
+    describe command('locale -a') do
+      its(:stdout) { should include 'en_US.utf8' }
+    end
   end
 
-  context 'installed by base_apt' do
+  describe 'base_apt' do
+    describe file('/etc/apt/sources.list') do
+      it { should contain 'deb http://archive.ubuntu.com/ubuntu lucid main universe multiverse' }
+      it { should contain 'deb http://archive.ubuntu.com/ubuntu lucid-updates main universe multiverse' }
+      it { should contain 'deb http://security.ubuntu.com/ubuntu lucid-security main universe multiverse' }
+    end
+
+    describe package('upstart') do
+      it { should be_installed }
+    end
+  end
+
+  context 'installed by base_ubuntu_build_essential' do
+    describe package('build-essential') do
+      it { should be_installed }
+    end
+  end
+
+  context 'installed by base_ubuntu_packages' do
     %w(
-      upstart
-      build-essential
       libssl-dev
       lsof
       strace
@@ -158,6 +177,16 @@ describe 'Ubuntu 10.04 OS image' do
     describe file('/etc/passwd') do
       it { should be_file }
       it { should contain '/home/vcap:/bin/bash' }
+    end
+  end
+
+  context 'installed by bosh_sysctl' do
+    describe file('/etc/sysctl.d/60-bosh-sysctl.conf') do
+      it { should be_file }
+    end
+
+    describe file('/etc/sysctl.d/60-bosh-sysctl-neigh-fix.conf') do
+      it { should_not be_file }
     end
   end
 end
