@@ -17,8 +17,14 @@ run_in_bosh_chroot $chroot '
 cd src
 tar zxvf drbd-8.4.5.tar.gz
 cd drbd-8.4.5
-make KDIR=/lib/modules/3.13.0-32-generic/build && make install
-depmod -a 3.13.0-32-generic
+if [ "${DISTRIB_CODENAME}" == "lucid" ]; then
+	make KDIR=/lib/modules/3.0.0-32-virtual/build && make install
+	depmod -a 3.0.0-32-virtual
+else
+	make KDIR=/lib/modules/3.13.0-32-generic/build && make install
+	depmod -a 3.13.0-32-generic
+fi
+
 cd ..
 tar zxvf drbd-utils-8.9.0.tar.gz
 cd drbd-utils-8.9.0
