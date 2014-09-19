@@ -108,10 +108,12 @@ module Bosh::Agent
 
     def shutdown
       @logger.info('Exit')
-      NATS.stop do
-        EM.stop
-        exit
+      if EM.reactor_running?
+        NATS.stop do
+          EM.stop
+        end
       end
+      exit
     end
 
     def on_connect
@@ -323,9 +325,10 @@ module Bosh::Agent
           @logger.info('deleting 70-persistent-net.rules - again')
           File.delete(udev_file)
         end
-        @logger.info('Removing settings.json')
-        settings_file = Bosh::Agent::Config.settings_file
-        File.delete(settings_file)
+        # bad thing to do in vsphere as the cdrom drive has already been unmounted. 
+        # @logger.info('Removing settings.json')
+        # settings_file = Bosh::Agent::Config.settings_file
+        # File.delete(settings_file)
       end
 
       @logger.info('Restarting agent to prepare for a network change')

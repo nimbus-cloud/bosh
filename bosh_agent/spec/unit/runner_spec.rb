@@ -58,7 +58,6 @@ module Bosh::Agent
         bootstrap.should_receive(:configure)
         @config.should_receive(:state)
         @config.should_receive(:state)
-        @config.should_receive(:state)
         bootstrap.should_receive(:mount_persistent_disk)
         runner.start
       end
@@ -69,14 +68,12 @@ module Bosh::Agent
         @monit.should_receive(:start_services)
         @config.should_receive(:state)
         @config.should_receive(:state)
-        @config.should_receive(:state)
         bootstrap.should_receive(:mount_persistent_disk)
         runner.start
       end
 
       it 'starts a nats handler by default' do
         @nat_handler.should_receive(:start)
-        @config.should_receive(:state)
         @config.should_receive(:state)
         @config.should_receive(:state)
         bootstrap.should_receive(:mount_persistent_disk)

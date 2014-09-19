@@ -434,7 +434,7 @@ describe Bosh::Agent::Handler do
       EM.should_receive(:defer).and_yield
       @nats.should_receive(:publish).and_yield
       File.should_receive(:exist?).with(udev_file).and_return(false)
-      File.should_receive(:delete).with(settings_file)
+      #File.should_receive(:delete).with(settings_file)
       handler.should_receive(:kill_main_thread_in).with(1)
 
       handler.handle_message(Yajl::Encoder.encode('method' => 'prepare_network_change',
