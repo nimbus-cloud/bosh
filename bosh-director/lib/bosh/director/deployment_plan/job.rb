@@ -299,15 +299,15 @@ module Bosh::Director
       def extract_template_properties(collection)
         result = {}
 
+        # Horrible hack to pass through dns info
+        copy_property(result, collection, "dns")
+ 
         @templates.each do |template|
           template.properties.each_pair do |name, definition|
             copy_property(result, collection, name, definition["default"])
           end
         end
         
-        # Horrible hack to pass through dns info
-        copy_property(result, collection, "dns")
-
         result
       end
 
