@@ -13,25 +13,35 @@ cp -r $dir/assets/drbd-utils-8.9.0.tar.gz $chroot/$bosh_dir/src
 
 pkg_mgr install lvm2
 
+if [ "${DISTRIB_CODENAME}" == "lucid" ]; then
+
 run_in_bosh_chroot $chroot '
 cd src
 tar zxvf drbd-8.4.5.tar.gz
 cd drbd-8.4.5
-if [ "${DISTRIB_CODENAME}" == "lucid" ]; then
-	make KDIR=/lib/modules/3.0.0-32-virtual/build && make install
-	depmod -a 3.0.0-32-virtual
+make KDIR=/lib/modules/3.0.0-32-virtual/build && make install
+depmod -a 3.0.0-32-virtual
+'
+
 else
-	make KDIR=/lib/modules/3.13.0-32-generic/build && make install
-	depmod -a 3.13.0-32-generic
+
+run_in_bosh_chroot $chroot '
+cd src
+tar zxvf drbd-8.4.5.tar.gz
+cd drbd-8.4.5
+make KDIR=/lib/modules/3.13.0-32-generic/build && make install
+depmod -a 3.13.0-32-generic
+'
+
 fi
 
-cd ..
+run_in_bosh_chroot $chroot '
+cd src
 tar zxvf drbd-utils-8.9.0.tar.gz
 cd drbd-utils-8.9.0
 ./configure --prefix=/
 make && make install
-#cp scripts/drbd.conf /etc/drbd.conf
-#mkdir /etc/drbd.d
 '
-
 cp -v $dir/assets/global_common.conf $chroot/etc/drbd.d/
+
+
