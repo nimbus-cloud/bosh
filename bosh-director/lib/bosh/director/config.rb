@@ -119,7 +119,7 @@ module Bosh::Director
         @dns_domain_name = 'bosh'
         if @dns
           @dns_db = configure_db(@dns['db']) if @dns['db']
-          @dns_domain_name = canonical(@dns['domain_name']) if @dns['domain_name']
+          @dns_domain_name = zone_name(@dns['domain_name']) if @dns['domain_name']
         end
 
         @uuid = override_uuid || Bosh::Director::Models::DirectorAttribute.find_or_create_uuid(@logger)

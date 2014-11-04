@@ -18,6 +18,21 @@ module Bosh::Director
       reverse(ip, 3)
     end
 
+    def zone_name(string)
+      # a-z, 0-9, -, case insensitive, and must start with a letter
+      string = string.downcase.gsub(/_/, "-").gsub(/[^a-z0-9-i\.]/, "")
+      if string =~ /^(\d|-)/
+        raise DnsInvalidCanonicalName,
+              "Invalid DNS canonical name `#{string}', must begin with a letter"
+      end
+      if string =~ /-$/
+        raise DnsInvalidCanonicalName,
+              "Invalid DNS canonical name `#{string}', can't end with a hyphen"
+      end
+      string
+    end
+
+
     def canonical(string)
       # a-z, 0-9, -, case insensitive, and must start with a letter
       string = string.downcase.gsub(/_/, "-").gsub(/[^a-z0-9-]/, "")
@@ -49,7 +64,7 @@ module Bosh::Director
         end
       end
 
-      return servers unless add_default_dns
+      return servers if !servers.empty?
 
       add_default_dns_server(servers)
     end
