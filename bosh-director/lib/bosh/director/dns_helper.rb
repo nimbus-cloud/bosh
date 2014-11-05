@@ -20,7 +20,7 @@ module Bosh::Director
 
     def zone_name(string)
       # a-z, 0-9, -, case insensitive, and must start with a letter
-      string = string.downcase.gsub(/_/, "-").gsub(/[^a-z0-9-i\.]/, "")
+      string = string.downcase.gsub(/_/, "-").gsub(/[^a-z0-9\.\-]/, "")
       if string =~ /^(\d|-)/
         raise DnsInvalidCanonicalName,
               "Invalid DNS canonical name `#{string}', must begin with a letter"
@@ -64,7 +64,7 @@ module Bosh::Director
         end
       end
 
-      return servers if !servers.empty?
+      return servers if servers!=nil and !servers.empty?
 
       add_default_dns_server(servers)
     end

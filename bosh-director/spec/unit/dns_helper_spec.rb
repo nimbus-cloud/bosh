@@ -46,7 +46,7 @@ module Bosh::Director
 
       it 'should add default dns server to an array of DNS servers' do
         Config.stub(:dns).and_return({'server' => '9.10.11.12'})
-        dns_servers('network', {'dns' => %w[1.2.3.4 5.6.7.8]}).should == %w[1.2.3.4 5.6.7.8 9.10.11.12]
+        dns_servers('network', {'dns' => %w[1.2.3.4 5.6.7.8]}).should == %w[1.2.3.4 5.6.7.8]
       end
 
       it 'should not add default dns server to an array of DNS servers' do
