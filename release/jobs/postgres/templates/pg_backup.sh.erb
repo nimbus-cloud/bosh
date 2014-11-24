@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+	echo "Please specify deployment as 1st parameter."
+	exit 1;
+fi
+
+export BACKUP_DIR="/var/vcap/services_backup/$1/postgres"
+export TIMESTAMP=`date +%Y%m%d-%H%M`
+
+
+mkdir -p $BACKUP_DIR/$TIMESTAMP/
+/var/vcap/packages/postgres/bin/pg_dumpall -U vcap | gzip -c > $BACKUP_DIR/$TIMESTAMP/all.dbs.out.gz
+find $BACKUP_DIR -mtime +<%= properties.postgres.backup.retention_days %> -exec rm -rf {} \;
