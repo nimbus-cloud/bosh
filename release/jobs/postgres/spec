@@ -4,6 +4,10 @@ name: postgres
 templates:
   postgres_ctl.erb:  bin/postgres_ctl
   postgres.conf.erb: config/postgres.conf
+  postgres_backup.cron.erb: config/postgres_backup.cron
+  postgres_backup.erb: bin/postgres_backup  
+  pg_backup.sh.erb: config/pg_backup.sh
+  utils.sh: bin/utils.sh
 
 packages:
   - postgres
@@ -23,3 +27,15 @@ properties:
   postgres.database:
     description: Default Postgres database (it will be created during the startup process)
     default: bosh
+  postgres.backup.enable:
+    default: false
+  postgres.backup.first_node_only:
+    default: false
+  postgres.backup.cron_interval:
+    default: 0 7 * * *
+  postgres.backup.retention_days:
+    default: 30
+  service_backup.nfs_server.address:
+    description: NFS server address to use for backup
+  service_backup.nfs_server.export_dir:
+    description: NFS server export dir for backups
