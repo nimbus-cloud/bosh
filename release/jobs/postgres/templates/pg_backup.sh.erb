@@ -15,6 +15,6 @@ echo "Backup starting: `date`"
 echo "Backup completed: `date`"
 
 echo "Cleaning up backups older than <%= properties.postgres.backup.retention_days %> days.."
-find $BACKUP_DIR -mtime +<%= properties.postgres.backup.retention_days %> -exec rm -rvf {} \;
+find $BACKUP_DIR -mtime <%= properties.postgres.backup.retention_days %> -exec rm -rvf {} \;
 
 echo "Done."
