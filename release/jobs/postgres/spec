@@ -13,6 +13,8 @@ packages:
   - postgres
 
 properties:
+  datacenter:
+    description: Datacenter this deployment is in
   postgres.user:
     description: Username clients must use to access Postgres
     default: bosh
