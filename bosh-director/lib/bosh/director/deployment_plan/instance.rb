@@ -376,7 +376,9 @@ module Bosh::Director
       end
       
       def register_dns_changed?
-        @job.dns_register_on_start != @current_state['dns_register_on_start']
+        return true if @job.dns_register_on_start != @current_state['dns_register_on_start']
+        return true if @current_state['dns_register_on_start'] and @job.properties['dns'] != @current_state['properties']['dns']
+        false
       end 
       
       ##
