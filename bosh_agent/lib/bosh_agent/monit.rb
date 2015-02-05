@@ -163,24 +163,28 @@ module Bosh::Agent
       def unmonitor_services(attempts=10)
         retry_monit_request(attempts) do |client|
           client.unmonitor(:group => BOSH_APP_GROUP)
+          client.unmonitor(:group => "vcap_monitor")
         end
       end
 
       def monitor_services(attempts=10)
         retry_monit_request(attempts) do |client|
           client.monitor(:group => BOSH_APP_GROUP)
+          client.monitor(:group => "vcap_monitor")
         end
       end
 
       def start_services(attempts=20)
         retry_monit_request(attempts) do |client|
           client.start(:group => BOSH_APP_GROUP)
+          client.start(:group => "vcap_monitor")
         end
       end
 
       def stop_services(attempts=20)
         retry_monit_request(attempts) do |client|
           client.stop(:group => BOSH_APP_GROUP)
+          client.stop(:group => "vcap_monitor")
         end
       end
 
@@ -230,6 +234,13 @@ module Bosh::Agent
         end
       end
 
+      def get_monitor_status(num_retries=10)
+        return {} unless @enabled
+        retry_monit_request(num_retries) do |client|
+          client.status(:group => "vcap_monitor")
+        end
+      end
+
       def get_system_status(num_retries=10)
         return {} unless @enabled
         retry_monit_request(num_retries) do |client|
@@ -274,7 +285,17 @@ module Bosh::Agent
           (data[:monitor] == :yes && data[:status][:message] == "running")
         end
 
-        not_running.empty? ? "running" : "failing"
+        if not_running.empty?
+          monitor_status = get_monitor_status(num_retries)
+          monitor_status.each_key do |service|
+            if monitor_status[service][:status][:code] != 0
+              return "alerting"
+            end
+          end
+          "running"
+        else
+          "failing"
+        end
       rescue => e
         logger.info("Unable to determine job state: #{e}")
         "unknown"

@@ -178,7 +178,15 @@ module Bosh::Agent
         end
 
         File.open(out_file, "w") do |f|
-          f.write(add_modes(result))
+          text=""
+          # HACK
+          # Horrible hack to get around the horrible hack that is the "add_modes" function below
+          if @template=~/^monitor/
+            text=result
+          else
+            text=add_modes(result)
+          end
+          f.write(text)
         end
 
         # Monit will load all {base_dir}/monit/job/*.monitrc files,
