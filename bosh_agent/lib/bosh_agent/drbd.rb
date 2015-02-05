@@ -15,6 +15,7 @@ resource r0 {
   net {
     protocol <%= drbd_replication_type %>;
     shared-secret <%= drbd_secret %>;
+    verify-alg sha1;
   }
   disk {
     resync-rate 24M;
