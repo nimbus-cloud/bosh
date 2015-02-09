@@ -31,6 +31,8 @@ properties:
     default: bosh
   postgres.backup.enable:
     default: false
+  postgres.backup.name:
+    description: Root backup dir name
   postgres.backup.first_node_only:
     default: false
   postgres.backup.cron_interval:
