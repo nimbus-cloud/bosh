@@ -96,4 +96,10 @@ LABEL="cdrom_end"
 HERE
     end
   end
+
+  context 'default packages removed' do
+    describe package('postfix') do
+      it { should_not be_installed }
+    end
+  end
 end
