@@ -90,11 +90,11 @@ module Bosh::Director
 
       step { wait_until_running }
 
-      if @target_state == "started" && current_state["job_state"] != "running"
+      if @target_state == "started" && current_state["job_state"] != "running" && current_state["job_state"] != "alerting"
         raise AgentJobNotRunning, "`#{@instance}' is not running after update"
       end
 
-      if @target_state == "stopped" && current_state["job_state"] == "running"
+      if @target_state == "stopped" && ( current_state["job_state"] == "running" || current_state["job_state"] == "alerting" )
         raise AgentJobNotStopped, "`#{@instance}' is still running despite the stop command"
       end
       @instance.sync_state_with_db
@@ -113,7 +113,7 @@ module Bosh::Director
         @current_state = agent.get_state
 
         if @target_state == "started"
-          break if current_state["job_state"] == "running"
+          break if current_state["job_state"] == "running" or current_state["job_state"] == "alerting"
         elsif @target_state == "stopped"
           break if current_state["job_state"] != "running"
         end
