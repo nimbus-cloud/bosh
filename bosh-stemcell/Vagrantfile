@@ -4,6 +4,7 @@ vm_box = 'bosh-stemcell-937f30'
 %x(vagrant plugin install vagrant-omnibus) unless Vagrant.has_plugin?('vagrant-omnibus')
 %x(vagrant plugin install vagrant-vsphere) unless Vagrant.has_plugin?('vagrant-vsphere')
 %x(vagrant plugin install vagrant-berkshelf  --plugin-version 2.0.0.rc3) unless Vagrant.has_plugin?('vagrant-berkshelf')
+%x(vagrant plugin install vagrant-lxc) unless Vagrant.has_plugin?('vagrant-lxc')
 
 Vagrant.configure('2') do |config|
   config.vm.box = vm_box
