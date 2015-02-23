@@ -24,7 +24,7 @@ Vagrant.configure('2') do |config|
       lxc.customize 'cgroup.devices.allow', 'b 252:* rwm'
       lxc.customize 'cgroup.devices.allow', 'c 10:237 rwm'
       lxc.customize 'cgroup.devices.allow', 'c 10:236 rwm'
-
+      lxc.backingstore 'none'
     end
   end
 
