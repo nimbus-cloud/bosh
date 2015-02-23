@@ -133,7 +133,8 @@ module Bosh::Agent
     end
 
     def setup_syslog_monitor
-      Bosh::Agent::SyslogMonitor.start(@nats, @agent_id)
+      #disable ssh alerts. They are far too annoying
+      #Bosh::Agent::SyslogMonitor.start(@nats, @agent_id)
     end
 
     # rubocop:disable MethodLength
