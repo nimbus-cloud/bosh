@@ -40,7 +40,7 @@ module Bosh::Deployer
         update_service_address(service, agent_services_ip)
       end
 
-      %w{director redis}.each do |service|
+      %w{director redis postgres}.each do |service|
         update_service_address(service, internal_services_ip)
       end
 
