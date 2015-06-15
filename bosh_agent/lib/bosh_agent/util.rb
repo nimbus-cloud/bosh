@@ -21,6 +21,8 @@ module Bosh::Agent
         data_tmp = File.join(base_dir, 'data', 'tmp')
         FileUtils.mkdir_p(data_tmp)
 
+        logger.info("Blobstore provider: #{bsc_provider}, options: #{bsc_options}, sha1: #{sha1}, tmp file: #{data_tmp}")
+
         begin
           tf = Tempfile.open(blobstore_id, data_tmp)
 
