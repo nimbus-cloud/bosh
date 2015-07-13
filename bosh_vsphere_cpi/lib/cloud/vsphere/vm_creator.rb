@@ -40,7 +40,7 @@ module VSphereCloud
       devices = replicated_stemcell_properties['config.hardware.device']
       snapshot = replicated_stemcell_properties['snapshot']
 
-      config = VimSdk::Vim::Vm::ConfigSpec.new(memory_mb: @memory, num_cpus: @cpu)
+      config = VimSdk::Vim::Vm::ConfigSpec.new(memory_mb: @memory, num_cpus: @cpu, memory_reservation_locked_to_max: true)
       config.device_change = []
 
       system_disk = devices.find { |device| device.kind_of?(VimSdk::Vim::Vm::Device::VirtualDisk) }
