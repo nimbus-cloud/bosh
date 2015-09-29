@@ -136,6 +136,8 @@ module Bosh::Agent
         let(:status) { {} }
 
         it 'returns running if there are no services' do
+          monit_api_client.should_receive(:status).with(group: 'vcap_monitor').and_return status
+
           expect(Monit.service_group_state).to eq 'running'
         end
       end

@@ -66,8 +66,9 @@ describe Bosh::Agent::Message::State do
   it "should report job_state as running" do
     handler = Bosh::Agent::Message::State.new
 
-    status = { "foo" => { :status => { :message => "running" }, :monitor => :yes }}
-    @monit_mock.should_receive(:status).and_return(status)
+    status = { "foo" => { :status => { :message => "running", :code => 0 }, :monitor => :yes }}
+    @monit_mock.should_receive(:status).with(:group => "vcap").and_return(status)
+    @monit_mock.should_receive(:status).with(:group => "vcap_monitor").and_return(status)
 
     handler.state['job_state'].should == "running"
   end
@@ -94,7 +95,8 @@ describe Bosh::Agent::Message::State do
     handler = Bosh::Agent::Message::State.new(['full'])
 
     status = { "foo" => { :status => { :message => "running" }, :monitor => :yes }}
-    @monit_mock.should_receive(:status).and_return(status)
+    @monit_mock.should_receive(:status).with(:group => "vcap").and_return(status)
+    @monit_mock.should_receive(:status).with(:group => "vcap_monitor").and_return(status)
 
     vitals = {
       "foo" => {
@@ -108,7 +110,7 @@ describe Bosh::Agent::Message::State do
         }
       }
     }
-    @monit_mock.should_receive(:status).and_return(vitals)
+    @monit_mock.should_receive(:status).with(:type => :system).and_return(vitals)
 
     agent_vitals = handler.state['vitals']
     agent_vitals['load'].should == ["1", "5", "15"] &&

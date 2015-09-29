@@ -5,10 +5,10 @@ module Bosh::Blobstore
     describe 'interface' do
       subject do
         s3_blobstore(
-          encryption_key: 'bla',
-          bucket_name: 'test',
-          access_key_id: 'KEY',
-          secret_access_key: 'SECRET'
+            encryption_key: 'bla',
+            bucket_name: 'test',
+            access_key_id: 'KEY',
+            secret_access_key: 'SECRET'
         )
       end
 
@@ -24,84 +24,108 @@ module Bosh::Blobstore
 
     describe 'options' do
       it 'should support symbols as option keys' do
-        options = { bucket_name: 'test',
-                    access_key_id: 'KEY',
-                    secret_access_key: 'SECRET' }
+        options = {bucket_name: 'test',
+                   access_key_id: 'KEY',
+                   secret_access_key: 'SECRET'}
 
         expect(s3_blobstore(options).bucket_name).to eq 'test'
       end
 
       it 'should support strings as option keys' do
-        options = { 'bucket_name' => 'test',
-                    'access_key_id' => 'KEY',
-                    'secret_access_key' => 'SECRET' }
+        options = {'bucket_name' => 'test',
+                   'access_key_id' => 'KEY',
+                   'secret_access_key' => 'SECRET'}
 
         expect(s3_blobstore(options).bucket_name).to eq 'test'
       end
 
       it 'should raise an error if using simple and encryption' do
-        options = { 'bucket_name' => 'test',
-                    'encryption_key' => 'KEY' }
+        options = {'bucket_name' => 'test',
+                   'encryption_key' => 'KEY'}
         expect { s3_blobstore(options) }.to raise_error(
-          BlobstoreError, "can't use read-only with an encryption key")
+                                                BlobstoreError, "can't use read-only with an encryption key")
       end
 
       context 'when advanced options are provided for customization' do
-        before do
-          options.merge!(
-            'bucket_name' => 'test',
-            'access_key_id' => 'KEY',
-            'secret_access_key' => 'SECRET',
-            'use_ssl' => false,
-            'ssl_verify_peer' => false,
-            's3_multipart_threshold' => 33333,
-            'port' => 8080,
-            'host' => 'our.userdefined.com',
-            's3_force_path_style' => true,
-          )
-        end
 
         it 'uses those options when building AWS::S3 client' do
+
+          options = {
+              'bucket_name' => 'test',
+              'access_key_id' => 'KEY',
+              'secret_access_key' => 'SECRET',
+              'use_ssl' => false,
+              'ssl_verify_peer' => false,
+              's3_multipart_threshold' => 33333,
+              'port' => 8080,
+              'host' => 'our.userdefined.com',
+              's3_force_path_style' => true,
+          }
+
           expect(AWS::S3).to receive(:new).with(
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET',
-            use_ssl: false,
-            ssl_verify_peer: false,
-            s3_multipart_threshold: 33333,
-            s3_port: 8080,
-            s3_endpoint: 'our.userdefined.com',
-            s3_force_path_style: true,
-          )
+                                 access_key_id: 'KEY',
+                                 secret_access_key: 'SECRET',
+                                 use_ssl: false,
+                                 ssl_verify_peer: false,
+                                 s3_multipart_threshold: 33333,
+                                 s3_port: 8080,
+                                 s3_endpoint: 'our.userdefined.com',
+                                 s3_force_path_style: true,
+                             )
 
           S3BlobstoreClient.new(options)
 
         end
 
         it 'uses default options when building AWS::S3 client' do
-          expect(AWS::S3).to receive(:new).with(
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET',
-            use_ssl: true,
-            ssl_verify_peer: true,
-            s3_multipart_threshold: 16_777_216,
-            s3_port: 443,
-            s3_endpoint: 's3.amazonaws.com',
-            s3_force_path_style: false,
-          )
+          options = {
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET',
+              use_ssl: true,
+              ssl_verify_peer: true,
+              s3_multipart_threshold: 16_777_216,
+              s3_port: 443,
+              s3_endpoint: 's3.amazonaws.com',
+              s3_force_path_style: false,
+          }
 
-          client
+          expect(AWS::S3).to receive(:new).with(
+                                 access_key_id: 'KEY',
+                                 secret_access_key: 'SECRET',
+                                 use_ssl: true,
+                                 ssl_verify_peer: true,
+                                 s3_multipart_threshold: 16_777_216,
+                                 s3_port: 443,
+                                 s3_endpoint: 's3.amazonaws.com',
+                                 s3_force_path_style: false,
+                             )
+
+          S3BlobstoreClient.new(options)
         end
 
-          expect(AWS::S3).to receive(:new).
-                                 with(access_key_id: 'KEY',
+        it 'potato' do
+
+          options = {
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET',
+              use_ssl: true,
+              ssl_verify_peer: true,
+              s3_multipart_threshold: 16_777_216,
+              s3_port: 443,
+              s3_endpoint: 's3.amazonaws.com',
+              s3_force_path_style: true
+          }
+
+          expect(AWS::S3).to receive(:new).with(
+                                      access_key_id: 'KEY',
                                       secret_access_key: 'SECRET',
                                       use_ssl: true,
                                       ssl_verify_peer: true,
                                       s3_multipart_threshold: 16_777_216,
                                       s3_port: 443,
                                       s3_endpoint: 's3.amazonaws.com',
-                                      s3_force_path_style: true).
-                                 and_return(s3)
+                                      s3_force_path_style: true
+                             )
 
           S3BlobstoreClient.new(options)
         end
@@ -114,10 +138,10 @@ module Bosh::Blobstore
       context 'encrypted' do
         let(:options) do
           {
-            bucket_name: 'test',
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET',
-            encryption_key: 'kjahsdjahsgdlahs'
+              bucket_name: 'test',
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET',
+              encryption_key: 'kjahsdjahsgdlahs'
           }
         end
 
@@ -132,9 +156,9 @@ module Bosh::Blobstore
       context 'unencrypted' do
         let(:options) do
           {
-            bucket_name: 'test',
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET'
+              bucket_name: 'test',
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET'
           }
         end
 
@@ -173,10 +197,10 @@ module Bosh::Blobstore
       context 'with option folder' do
         let(:options) do
           {
-            bucket_name: 'test',
-            folder: 'folder',
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET',
+              bucket_name: 'test',
+              folder: 'folder',
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET',
           }
         end
 
@@ -190,7 +214,7 @@ module Bosh::Blobstore
       end
 
       context 'with read-only access' do
-        let(:options) { { bucket_name: 'fake-bucket' } }
+        let(:options) { {bucket_name: 'fake-bucket'} }
 
         it 'raises an error' do
           expect {
@@ -203,9 +227,9 @@ module Bosh::Blobstore
     describe '#get' do
       let(:options) do
         {
-          bucket_name: 'test',
-          access_key_id: 'KEY',
-          secret_access_key: 'SECRET'
+            bucket_name: 'test',
+            access_key_id: 'KEY',
+            secret_access_key: 'SECRET'
         }
       end
       let(:client) { s3_blobstore(options) }
@@ -228,10 +252,10 @@ module Bosh::Blobstore
       context 'with option folder' do
         let(:options) do
           {
-            bucket_name: 'test',
-            folder: 'folder',
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET',
+              bucket_name: 'test',
+              folder: 'folder',
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET',
           }
         end
         let(:client) { s3_blobstore(options) }
@@ -248,10 +272,10 @@ module Bosh::Blobstore
     describe '#exists?' do
       let(:options) do
         {
-          encryption_key: 'bla',
-          bucket_name: 'test',
-          access_key_id: 'KEY',
-          secret_access_key: 'SECRET'
+            encryption_key: 'bla',
+            bucket_name: 'test',
+            access_key_id: 'KEY',
+            secret_access_key: 'SECRET'
         }
       end
       let(:client) { s3_blobstore(options) }
@@ -270,7 +294,7 @@ module Bosh::Blobstore
       end
 
       context 'without folder options' do
-        let(:options) { { bucket_name: 'fake-bucket' } }
+        let(:options) { {bucket_name: 'fake-bucket'} }
 
         it 'should pass through to simple.object_exists? for #exists?' do
           expect(client.simple).to receive(:exists?).with('fake-oid')
@@ -279,7 +303,7 @@ module Bosh::Blobstore
       end
 
       context 'with folder options' do
-        let(:options) { { bucket_name: 'fake-bucket', folder: 'fake-folder' } }
+        let(:options) { {bucket_name: 'fake-bucket', folder: 'fake-folder'} }
 
         it 'should pass through to simple.object_exists? for #exists? with folder' do
           expect(client.simple).to receive(:exists?).with('fake-folder/fake-oid')
@@ -294,10 +318,10 @@ module Bosh::Blobstore
       context 'without folder option' do
         let(:options) do
           {
-            encryption_key: 'bla',
-            bucket_name: 'test',
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET'
+              encryption_key: 'bla',
+              bucket_name: 'test',
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET'
           }
         end
 
@@ -323,10 +347,10 @@ module Bosh::Blobstore
       context 'with option folder' do
         let(:options) do
           {
-            folder: 'folder',
-            bucket_name: 'test',
-            access_key_id: 'KEY',
-            secret_access_key: 'SECRET'
+              folder: 'folder',
+              bucket_name: 'test',
+              access_key_id: 'KEY',
+              secret_access_key: 'SECRET'
           }
         end
 
@@ -342,7 +366,7 @@ module Bosh::Blobstore
       end
 
       context 'with read-only access' do
-        let(:options) { { bucket_name: 'fake-bucket' } }
+        let(:options) { {bucket_name: 'fake-bucket'} }
 
         it 'raises an error' do
           expect {

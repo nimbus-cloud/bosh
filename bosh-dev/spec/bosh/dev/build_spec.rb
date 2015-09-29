@@ -343,14 +343,14 @@ module Bosh::Dev
 
       it 'downloads the specified release from the pipeline bucket' do
         uri = URI('http://bosh-ci-pipeline.s3.amazonaws.com/123/release/bosh-123.tgz')
-        download_adapter.should_receive(:download).with(uri, 'tmp/bosh-123.tgz')
+        expect(download_adapter).to receive(:download).with(uri, '/tmp/bosh-123.tgz')
         build.release_tarball_path
       end
 
       it 'returns the relative path of the downloaded release' do
         uri = URI('http://bosh-ci-pipeline.s3.amazonaws.com/123/release/bosh-123.tgz')
-        download_adapter.should_receive(:download).with(uri, 'tmp/bosh-123.tgz')
-        expect(build.release_tarball_path).to eq('tmp/bosh-123.tgz')
+        expect(download_adapter).to receive(:download).with(uri, '/tmp/bosh-123.tgz')
+        expect(build.release_tarball_path).to eq('/tmp/bosh-123.tgz')
       end
     end
 

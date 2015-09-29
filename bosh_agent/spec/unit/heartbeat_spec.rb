@@ -70,6 +70,7 @@ describe Bosh::Agent::Heartbeat do
 
     client = double("monit_client")
     client.stub(:status).with(:group => "vcap").and_return(processes_status)
+    client.stub(:status).with(:group => "vcap_monitor").and_return(processes_status)
     client.stub(:status).with(:type => :system).and_return(system_status)
 
     Bosh::Agent::Monit.stub(:retry_monit_request).and_yield(client)
@@ -85,7 +86,7 @@ describe Bosh::Agent::Heartbeat do
     expected_payload = {
       "job" => "mutator",
       "index" => 3,
-      "job_state" => "running",
+      "job_state" => "alerting",
       "vitals" => {
         "load" => [0.05, 0.1, 0.27],
         "mem" => { "percent" => 2.7, "kb" => 23121 },

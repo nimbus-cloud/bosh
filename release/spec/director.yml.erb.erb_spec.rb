@@ -51,6 +51,7 @@ describe 'director.yml.erb.erb' do
           'auto_fix_stateful_nodes' => true,
           'max_vm_create_tries' => 5,
         }
+      }
     }
   end
 
@@ -236,6 +237,7 @@ describe 'director.yml.erb.erb' do
           'use_ssl' => false,
           'ssl_verify_peer' => false,
           's3_multipart_threshold' => 123,
+          'port' => 5155,
           's3_port' => 5155,
           'host' => 'myhost.hostland.edu',
           's3_force_path_style' => true,

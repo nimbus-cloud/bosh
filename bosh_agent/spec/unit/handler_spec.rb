@@ -34,11 +34,12 @@ describe Bosh::Agent::Handler do
     handler.start
   end
 
-  it 'should attempt to start syslog monitor when handler starts' do
-    Bosh::Agent::SyslogMonitor.should_receive(:start).with(@nats, anything)
-
-    handler.start
-  end
+  # Ben disabled ssh alerts
+  # it 'should attempt to start syslog monitor when handler starts' do
+  #   Bosh::Agent::SyslogMonitor.should_receive(:start).with(@nats, anything)
+  #
+  #   handler.start
+  # end
 
   it 'should not start alert processor if alerts are disabled via config' do
     Bosh::Agent::Config.process_alerts = false
