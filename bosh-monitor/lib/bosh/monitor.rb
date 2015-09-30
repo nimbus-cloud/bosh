@@ -31,6 +31,7 @@ require 'bosh/monitor/yaml_helper'
 
 # Basic blocks
 require 'bosh/monitor/agent'
+require 'bosh/monitor/auth_provider'
 require 'bosh/monitor/config'
 require 'bosh/monitor/core_ext'
 require 'bosh/monitor/director'
@@ -48,7 +49,10 @@ require 'bosh/monitor/event_processor'
 require 'bosh/monitor/api_controller'
 
 # Protocols
-require 'bosh/monitor/protocols/tsdb'
+require 'bosh/monitor/protocols/tcp_connection'
+require 'bosh/monitor/protocols/tsdb_connection'
+require 'bosh/monitor/protocols/graphite_connection'
+
 
 # Events
 require 'bosh/monitor/events/base'
@@ -64,9 +68,11 @@ require 'bosh/monitor/plugins/cloud_watch'
 require 'bosh/monitor/plugins/datadog'
 require 'bosh/monitor/plugins/paging_datadog_client'
 require 'bosh/monitor/plugins/email'
+require 'bosh/monitor/plugins/graphite'
 require 'bosh/monitor/plugins/logger'
 require 'bosh/monitor/plugins/nats'
 require 'bosh/monitor/plugins/pagerduty'
 require 'bosh/monitor/plugins/resurrector'
 require 'bosh/monitor/plugins/tsdb'
-require 'bosh/monitor/plugins/varz'
+require 'bosh/monitor/plugins/consul_event_forwarder'
+require 'bosh/monitor/plugins/syslog_event_forwarder'

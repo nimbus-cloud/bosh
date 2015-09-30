@@ -3,7 +3,7 @@ name: postgres
 
 templates:
   postgres_ctl.erb:  bin/postgres_ctl
-  postgres.conf.erb: config/postgres.conf
+  postgresql.conf.erb: config/postgresql.conf
   postgres_backup.cron.erb: config/postgres_backup.cron
   postgres_backup.erb: bin/postgres_backup  
   pg_backup.sh.erb: bin/pg_backup.sh
@@ -29,6 +29,9 @@ properties:
   postgres.database:
     description: Default Postgres database (it will be created during the startup process)
     default: bosh
+  postgres.additional_databases:
+    description: Additional Postgres databases to be created (during the startup process)
+    default: []
   postgres.backup.enable:
     default: false
   postgres.backup.datacenter:

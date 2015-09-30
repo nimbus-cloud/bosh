@@ -15,18 +15,21 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = Gem::Requirement.new('>= 1.9.3')
 
-  spec.files         = `git ls-files -- lib/*`.split($/) + %w(README.md)
+  spec.files         = Dir['README.md', 'lib/**/*'].select{ |f| File.file? f }
   spec.executables   = spec.files.grep(%r{^bin/}) { |f| File.basename(f) }
   spec.test_files    = spec.files.grep(%r{^(test|spec|features)/})
   spec.require_paths = %w[lib]
 
-  spec.add_dependency 'bosh_aws_cpi', "~>#{version}"
+  spec.add_dependency 'bosh_aws_cpi', "~>2.0.0"
+  spec.add_dependency 'bosh-core', "~>#{version}"
 
   spec.add_development_dependency 'fakefs'
   spec.add_development_dependency 'rake'
   spec.add_development_dependency 'rspec'
   spec.add_development_dependency 'rspec-its'
+  spec.add_development_dependency 'rspec-instafail'
   spec.add_development_dependency 'timecop'
-  spec.add_development_dependency 'serverspec'
+  spec.add_development_dependency 'serverspec', '0.15.4'
+  spec.add_development_dependency 'specinfra', '1.15.0'
   spec.add_development_dependency 'foodcritic'
 end

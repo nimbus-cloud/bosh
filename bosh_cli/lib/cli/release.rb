@@ -7,8 +7,10 @@ module Bosh::Cli
   class Release
     attr_reader :dir
 
-    def initialize(dir)
+    def initialize(dir, final = false)
       @dir = dir
+      @final = final
+
       config_dir = File.join(dir, "config")
       @final_config_file = File.join(config_dir, "final.yml")
       @dev_config_file = File.join(config_dir, "dev.yml")
@@ -62,13 +64,15 @@ module Bosh::Cli
     def has_blobstore_secret?
       bs = @private_config["blobstore"]
 
+      return false unless @final_config['blobstore']
+
       # Add special handling for local blobstore which should not need need credentials
       provider = @final_config['blobstore']['provider']
       return true if provider == 'local'
 
       has_legacy_secret? ||
-        has_blobstore_secrets?(bs, "atmos", "secret") ||
         has_blobstore_secrets?(bs, "simple", "user", "password") ||
+        has_blobstore_secrets?(bs, "dav", "user", "password") ||
         has_blobstore_secrets?(bs, "swift", "rackspace") ||
         has_blobstore_secrets?(bs, "swift", "hp") ||
         has_blobstore_secrets?(bs, "swift", "openstack") ||
@@ -88,8 +92,6 @@ module Bosh::Cli
     #   s3:
     #     secret_access_key: ...
     #     access_key_id: ...
-    #   atmos:
-    #     secret: ...
 
     # Picks blobstore client to use with current release.
     #
@@ -99,13 +101,16 @@ module Bosh::Cli
       blobstore_config = Marshal.load(Marshal.dump(@final_config["blobstore"]))
 
       if blobstore_config.nil?
-        err("Missing blobstore configuration, please update your release")
+        err("Missing blobstore configuration, please update config/final.yml") if @final
+        unless @user_warned
+          warning("Missing blobstore configuration, please update config/final.yml before making a final release")
+          @user_warned = true
+        end
+        return nil
       end
 
       provider = blobstore_config["provider"]
       options  = blobstore_config["options"] || {}
-
-      deprecate_blobstore_secret if has_legacy_secret?
 
       options = merge_private_data(provider, options)
 
@@ -134,6 +139,8 @@ module Bosh::Cli
     # Extracts private blobstore data from final.yml (i.e. secrets)
     # and merges it into the blobstore options.
     def merge_private_data(provider, options)
+      err("Missing blobstore secret configuration, please update config/private.yml") if @final && !has_blobstore_secret?
+
       bs = @private_config["blobstore"]
       return options unless bs
 
@@ -142,19 +149,6 @@ module Bosh::Cli
       end
 
       options.merge(bs[provider] ? bs[provider] : {})
-    end
-
-    # stores blobstore_secret as blobstore.atmos.secret
-    def deprecate_blobstore_secret
-      say("WARNING:".make_red + " use of blobstore_secret is deprecated")
-
-      @private_config["blobstore"] ||= {}
-      bs = @private_config["blobstore"]
-
-      bs["atmos"] ||= {}
-      atmos = bs["atmos"]
-
-      atmos["secret"] = @private_config["blobstore_secret"]
     end
 
     # Upgrade path for legacy clients that kept release metadata
@@ -188,30 +182,6 @@ module Bosh::Cli
         say("Migrated dev config file format".make_green)
       end
 
-      if @final_config.has_key?("blobstore_options") &&
-          @final_config["blobstore_options"] != "deprecated"
-        say("Found legacy config file `#{@final_config_file}'".make_yellow)
-
-        unless @final_config["blobstore_options"]["provider"] == "atmos" &&
-            @final_config["blobstore_options"].has_key?("atmos_options")
-          err("Please update your release to the version " +
-                  "that uses Atmos blobstore")
-        end
-
-        new_final_config = {
-          "final_name" => @final_config["name"],
-          "blobstore" => {
-            "provider" => "atmos",
-            "options" => @final_config["blobstore_options"]["atmos_options"]
-          },
-          "blobstore_options" => "deprecated"
-        }
-
-        @final_config = new_final_config
-
-        File.open(@final_config_file, "w") { |f| Psych.dump(@final_config, f) }
-        say("Migrated final config file format".make_green)
-      end
     end
 
     def load_config(file)

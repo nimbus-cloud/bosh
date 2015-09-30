@@ -43,6 +43,7 @@ EOS
 }
 
 declare -a on_exit_items
+on_exit_items=()
 
 on_exit_items=()
 

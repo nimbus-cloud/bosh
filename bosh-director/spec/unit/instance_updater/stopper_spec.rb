@@ -3,7 +3,7 @@ require 'bosh/director/instance_updater/stopper'
 
 module Bosh::Director
   describe InstanceUpdater::Stopper do
-    subject(:preparer) { described_class.new(instance, agent_client, target_state, config, logger) }
+    subject(:stopper) { described_class.new(instance, agent_client, target_state, skip_drain, config, logger) }
 
     let(:instance) do
       instance_double('Bosh::Director::DeploymentPlan::Instance', {
@@ -17,11 +17,22 @@ module Bosh::Director
     let(:agent_client) { instance_double('Bosh::Director::AgentClient') }
     let(:target_state) { 'fake-target-state' }
     let(:config) { Config }
-    let(:logger) { Logger.new('/dev/null') }
+    let(:skip_drain) { false }
 
     describe '#stop' do
+      context 'when skip_drain is set to true' do
+        let(:skip_drain) { true }
+
+        it 'does not drain' do
+          expect(agent_client).to_not receive(:drain)
+          expect(stopper).to_not receive(:sleep)
+          expect(agent_client).to receive(:stop).with(no_args).ordered
+          stopper.stop
+        end
+      end
+
       context 'when shutting down' do
-        before { subject.stub(shutting_down?: true) }
+        before { allow(subject).to receive_messages(shutting_down?: true) }
 
         context 'with static drain' do
           it 'sends shutdown with next apply spec and then stops services' do
@@ -43,7 +54,7 @@ module Bosh::Director
       end
 
       context 'when updating' do
-        before { subject.stub(shutting_down?: false) }
+        before { allow(subject).to receive_messages(shutting_down?: false) }
 
         context 'with static drain' do
           it 'sends update with next apply spec and then stops services' do
@@ -66,27 +77,27 @@ module Bosh::Director
     end
 
     describe '#wait_for_dynamic_drain' do
-      before { subject.stub(:sleep) }
+      before { allow(subject).to receive(:sleep) }
 
       it 'can be canceled' do
-        Config.should_receive(:task_checkpoint).and_raise(TaskCancelled)
+        expect(Config).to receive(:task_checkpoint).and_raise(TaskCancelled)
         expect {
           subject.send(:wait_for_dynamic_drain, -1)
         }.to raise_error TaskCancelled
       end
 
       it 'should wait until the agent says it is done draining' do
-        agent_client.stub(:drain).with("status").and_return(-2, 0)
-        subject.should_receive(:sleep).with(1).ordered
-        subject.should_receive(:sleep).with(2).ordered
+        allow(agent_client).to receive(:drain).with("status").and_return(-2, 0)
+        expect(subject).to receive(:sleep).with(1).ordered
+        expect(subject).to receive(:sleep).with(2).ordered
         subject.send(:wait_for_dynamic_drain, -1)
       end
 
       it 'should wait until the agent says it is done draining' do
-        agent_client.stub(:drain).with("status").and_return(-2, 3)
-        subject.should_receive(:sleep).with(1).ordered
-        subject.should_receive(:sleep).with(2).ordered
-        subject.should_receive(:sleep).with(3).ordered
+        allow(agent_client).to receive(:drain).with("status").and_return(-2, 3)
+        expect(subject).to receive(:sleep).with(1).ordered
+        expect(subject).to receive(:sleep).with(2).ordered
+        expect(subject).to receive(:sleep).with(3).ordered
         subject.send(:wait_for_dynamic_drain, -1)
       end
     end

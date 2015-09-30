@@ -1,7 +1,7 @@
 module Bosh::Director
   module Api::Controllers
     class LocksController < BaseController
-      get '/locks' do
+      get '/', scope: :read do
         redis = Config.redis
 
         locks = []

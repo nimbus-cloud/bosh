@@ -1,27 +1,26 @@
-require 'logger'
 require 'benchmark'
 require 'securerandom'
+require 'bosh/director/config'
 require 'bosh/dev/sandbox/service'
 require 'bosh/dev/sandbox/socket_connector'
-require 'bosh/dev/sandbox/database_migrator'
 require 'bosh/dev/sandbox/postgresql'
 require 'bosh/dev/sandbox/mysql'
 require 'bosh/dev/sandbox/nginx'
+require 'bosh/dev/sandbox/workspace'
+require 'bosh/dev/sandbox/director_config'
+require 'bosh/dev/sandbox/port_provider'
+require 'bosh/dev/sandbox/services/director_service'
+require 'bosh/dev/sandbox/services/nginx_service'
+require 'bosh/dev/sandbox/services/connection_proxy_service'
+require 'bosh/dev/sandbox/services/uaa_service'
 require 'cloud/dummy'
+require 'logging'
 
 module Bosh::Dev::Sandbox
   class Main
     REPO_ROOT = File.expand_path('../../../../../', File.dirname(__FILE__))
 
     ASSETS_DIR = File.expand_path('bosh-dev/assets/sandbox', REPO_ROOT)
-
-    DIRECTOR_UUID = 'deadbeef'
-
-    DIRECTOR_CONFIG = 'director_test.yml'
-    DIRECTOR_CONF_TEMPLATE = File.join(ASSETS_DIR, 'director_test.yml.erb')
-
-    DIRECTOR_NGINX_CONFIG = 'director_nginx.conf'
-    DIRECTOR_NGINX_CONF_TEMPLATE = File.join(ASSETS_DIR, 'director_nginx.conf.erb')
 
     REDIS_CONFIG = 'redis_test.conf'
     REDIS_CONF_TEMPLATE = File.join(ASSETS_DIR, 'redis_test.conf.erb')
@@ -32,23 +31,25 @@ module Bosh::Dev::Sandbox
     EXTERNAL_CPI = 'cpi'
     EXTERNAL_CPI_TEMPLATE = File.join(ASSETS_DIR, 'cpi.erb')
 
-    DIRECTOR_PATH = File.expand_path('bosh-director', REPO_ROOT)
-    MIGRATIONS_PATH = File.join(DIRECTOR_PATH, 'db', 'migrations')
-
     attr_reader :name
     attr_reader :health_monitor_process
     attr_reader :scheduler_process
 
+    attr_reader :director_service
+    attr_reader :port_provider
+
+    attr_reader :database_proxy
+
     alias_method :db_name, :name
     attr_reader :blobstore_storage_dir
-    attr_reader :agent_type
 
-    attr_accessor :director_fix_stateful_nodes
-    attr_reader :logs_path
+    attr_reader :logger, :logs_path
 
     attr_reader :cpi
 
-    attr_accessor :external_cpi_enabled
+    attr_reader :nats_log_path
+
+    attr_accessor :trusted_certs
 
     def self.from_env
       db_opts = {
@@ -57,90 +58,67 @@ module Bosh::Dev::Sandbox
         password: ENV['TRAVIS'] ? '' : 'password',
       }
 
-      agent_type = ENV['BOSH_INTEGRATION_AGENT_TYPE'] || 'go'
+      logger = Logging.logger(STDOUT)
+      logger.level = ENV.fetch('LOG_LEVEL', 'DEBUG')
 
       new(
         db_opts,
         ENV['DEBUG'],
-        agent_type,
         ENV['TEST_ENV_NUMBER'].to_i,
-        Logger.new(STDOUT),
+        logger,
       )
     end
 
-    def initialize(db_opts, debug, agent_type, test_env_number, logger)
+    def initialize(db_opts, debug, test_env_number, logger)
       @debug = debug
-      @agent_type = agent_type
-      @test_env_number = test_env_number
       @logger = logger
-      @name = SecureRandom.hex(6)
+      @name = SecureRandom.uuid.gsub('-', '')
+
+      @port_provider = PortProvider.new(test_env_number)
 
       @logs_path = sandbox_path('logs')
       @dns_db_path = sandbox_path('director-dns.sqlite')
       @task_logs_dir = sandbox_path('boshdir/tasks')
-      @director_tmp_path = sandbox_path('boshdir')
       @blobstore_storage_dir = sandbox_path('bosh_test_blobstore')
 
-      base_log_path = File.join(logs_path, @name)
+      FileUtils.mkdir_p(@logs_path)
 
-      @redis_process = Service.new(%W[redis-server #{sandbox_path(REDIS_CONFIG)}], {}, @logger)
+      setup_redis
+      setup_nats
 
-      @redis_socket_connector = SocketConnector.new('redis', 'localhost', redis_port, @logger)
+      @uaa_service = UaaService.new(@port_provider, base_log_path, @logger)
 
-      @nats_process = Service.new(%W[nats-server -p #{nats_port}], {}, @logger)
+      @nginx_service = NginxService.new(sandbox_root, director_port, director_ruby_port, @uaa_service.port, @logger)
 
-      @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @logger)
+      setup_database(db_opts)
 
-      @nginx = Nginx.new
-
-      @director_nginx_process = Service.new(
-        %W[#{@nginx.executable_path} -c #{sandbox_path(DIRECTOR_NGINX_CONFIG)}], {}, @logger)
-
-      director_config = sandbox_path(DIRECTOR_CONFIG)
-      @director_process = Service.new(
-        %W[bosh-director -c #{director_config}],
-        { output: "#{base_log_path}.director.out" },
-        @logger,
+      director_config = sandbox_path(DirectorService::DEFAULT_DIRECTOR_CONFIG)
+      director_tmp_path = sandbox_path('boshdir')
+      @director_service = DirectorService.new(
+        {
+          database: @database,
+          director_port: director_ruby_port,
+          redis_port: redis_port,
+          base_log_path: base_log_path,
+          director_tmp_path: director_tmp_path,
+          director_config: director_config
+        },
+        @logger
       )
-
-      @director_nginx_socket_connector = SocketConnector.new('director_nginx', 'localhost', director_port, @logger)
-
-      @director_socket_connector = SocketConnector.new('director', 'localhost', director_ruby_port, @logger)
-
-      @worker_processes = 3.times.map do |index|
-        Service.new(
-          %W[bosh-director-worker -c #{director_config}],
-          { output: "#{base_log_path}.worker_#{index}.out", env: { 'QUEUE' => '*' } },
-          @logger,
-        )
-      end
-
-      @health_monitor_process = Service.new(
-        %W[bosh-monitor -c #{sandbox_path(HM_CONFIG)}],
-        { output: "#{logs_path}/health_monitor.out" },
-        @logger,
-      )
+      setup_heath_monitor
 
       @scheduler_process = Service.new(
         %W[bosh-director-scheduler -c #{director_config}],
-        { output: "#{base_log_path}.scheduler.out" },
+        {output: "#{base_log_path}.scheduler.out"},
         @logger,
       )
-
-      if db_opts[:name] == 'mysql'
-        @database = Mysql.new(@name, @logger, db_opts[:user], db_opts[:password])
-      else
-        @database = Postgresql.new(@name, @logger)
-      end
 
       # Note that this is not the same object
       # as dummy cpi used inside bosh-director process
       @cpi = Bosh::Clouds::Dummy.new(
-        'dir' => cloud_storage_dir,
-        'agent' => { 'type' => agent_type },
+        'dir' => cloud_storage_dir
       )
-
-      @database_migrator = DatabaseMigrator.new(DIRECTOR_PATH, director_config, @logger)
+      reconfigure({})
     end
 
     def agent_tmp_path
@@ -152,61 +130,50 @@ module Bosh::Dev::Sandbox
     end
 
     def start
+      @logger.info("Debug logs are saved to #{saved_logs_path}")
       setup_sandbox_root
-
-      @redis_process.start
-      @redis_socket_connector.try_to_connect
-
-      @director_nginx_process.start
-      @director_nginx_socket_connector.try_to_connect
-
-      @nats_process.start
-      @nats_socket_connector.try_to_connect
 
       FileUtils.mkdir_p(cloud_storage_dir)
       FileUtils.rm_rf(logs_path)
       FileUtils.mkdir_p(logs_path)
 
+      @database_proxy && @database_proxy.start
+
+      @redis_process.start
+      @redis_socket_connector.try_to_connect
+
+      @nginx_service.start
+
+      @nats_process.start
+      @nats_socket_connector.try_to_connect
+
       @database.create_db
       @database_created = true
-      @database_migrator.migrate
 
-      reconfigure_director
-      @worker_processes.each(&:start)
+      @uaa_service.start if @user_authentication == 'uaa'
+
+      @director_service.start(director_config)
     end
 
-    def reset(name)
-      time = Benchmark.realtime { do_reset(name) }
+    def director_config
+      attributes = {
+        sandbox_root: sandbox_root,
+        database: @database,
+        blobstore_storage_dir: blobstore_storage_dir,
+        director_fix_stateful_nodes: @director_fix_stateful_nodes,
+        external_cpi_enabled: @external_cpi_enabled,
+        external_cpi_config: external_cpi_config,
+        cloud_storage_dir: cloud_storage_dir,
+        user_authentication: @user_authentication,
+        trusted_certs: @trusted_certs,
+        users_in_manifest: @users_in_manifest,
+      }
+      DirectorConfig.new(attributes, @port_provider)
+    end
+
+    def reset
+      time = Benchmark.realtime { do_reset }
       @logger.info("Reset took #{time} seconds")
-    end
-
-    def reconfigure_director
-      @director_process.stop
-
-      write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
-
-      FileUtils.rm_rf(director_tmp_path)
-      FileUtils.mkdir_p(director_tmp_path)
-      File.open(File.join(director_tmp_path, 'state.json'), 'w') do |f|
-        f.write(Yajl::Encoder.encode('uuid' => DIRECTOR_UUID))
-      end
-
-      @director_process.start
-
-      begin
-        # CI does not have enough time to start bosh-director
-        # for some parallel tests; increasing to 60 secs (= 300 tries).
-        @director_socket_connector.try_to_connect(300)
-      rescue
-        output_service_log(@director_process)
-        raise
-      end
-    end
-
-    def reconfigure_workers
-      @worker_processes.each(&:stop)
-      write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
-      @worker_processes.each(&:start)
     end
 
     def reconfigure_health_monitor(erb_template)
@@ -219,6 +186,10 @@ module Bosh::Dev::Sandbox
       sandbox_path('bosh_cloud_test')
     end
 
+    def saved_logs_path
+      File.join(Workspace.dir, "#{@name}.log")
+    end
+
     def save_task_logs(name)
       if @debug && File.directory?(task_logs_dir)
         task_name = "task_#{name}_#{SecureRandom.hex(6)}"
@@ -228,23 +199,22 @@ module Bosh::Dev::Sandbox
 
     def stop
       @cpi.kill_agents
-      @scheduler_process.stop
-      @worker_processes.each(&:stop)
-      @director_process.stop
 
-      @director_nginx_process.stop
+      @director_service.stop
+
+      @nginx_service.stop
       @redis_process.stop
       @nats_process.stop
 
       @health_monitor_process.stop
+      @uaa_service.stop
+
       @database.drop_db
+      @database_proxy && @database_proxy.stop
+
       FileUtils.rm_f(dns_db_path)
-      FileUtils.rm_rf(director_tmp_path)
       FileUtils.rm_rf(agent_tmp_path)
       FileUtils.rm_rf(blobstore_storage_dir)
-
-      # Hardcoded in bosh/spec/assets/test_release_template/config/final.yml
-      FileUtils.rm_rf('/tmp/bosh-integration-tests')
     end
 
     def run
@@ -262,68 +232,81 @@ module Bosh::Dev::Sandbox
     end
 
     def nats_port
-      @nats_port ||= get_named_port(:nats)
+      @nats_port ||= @port_provider.get_port(:nats)
     end
 
     def hm_port
-      @hm_port ||= get_named_port(:hm)
+      @hm_port ||= @port_provider.get_port(:hm)
+    end
+
+    def director_url
+      @director_url ||= "https://127.0.0.1:#{director_port}"
     end
 
     def director_port
-      @director_port ||= get_named_port(:director)
+      @director_port ||= @port_provider.get_port(:nginx)
     end
 
     def director_ruby_port
-      @director_ruby_port ||= get_named_port(:director_ruby)
+      @director_ruby_port ||= @port_provider.get_port(:director_ruby)
     end
 
     def redis_port
-      @redis_port ||= get_named_port(:redis)
+      @redis_port ||= @port_provider.get_port(:redis)
     end
 
     def sandbox_root
-      @sandbox_root ||= Dir.mktmpdir.tap { |p| @logger.info("sandbox=#{p}") }
+      File.join(Workspace.dir, 'sandbox')
     end
 
-    def external_cpi_config
-      {
-        exec_path: File.join(REPO_ROOT, 'bosh-director', 'bin', 'dummy_cpi'),
-        director_path: sandbox_path(EXTERNAL_CPI),
-        config_path: sandbox_path(DIRECTOR_CONFIG),
-        env_path: ENV['PATH']
-      }
+    def reconfigure(options)
+      @user_authentication = options.fetch(:user_authentication, 'local')
+      @external_cpi_enabled = options.fetch(:external_cpi_enabled, false)
+      @director_fix_stateful_nodes = options.fetch(:director_fix_stateful_nodes, false)
+      @nginx_service.reconfigure(options[:ssl_mode])
+      @uaa_service.reconfigure(options[:uaa_encryption])
+      @users_in_manifest = options.fetch(:users_in_manifest, true)
+    end
+
+    def certificate_path
+      File.join(ASSETS_DIR, 'ca', 'certs', 'rootCA.pem')
     end
 
     private
 
-    def do_reset(name)
+    def external_cpi_config
+      {
+        name: 'test-cpi',
+        exec_path: File.join(REPO_ROOT, 'bosh-director', 'bin', 'dummy_cpi'),
+        job_path: sandbox_path(EXTERNAL_CPI),
+        config_path: sandbox_path(DirectorService::DEFAULT_DIRECTOR_CONFIG),
+        env_path: ENV['PATH']
+      }
+    end
+
+    def do_reset
       @cpi.kill_agents
 
-      Redis.new(host: 'localhost', port: redis_port).flushdb
+      @director_service.stop
 
       @database.truncate_db
 
       FileUtils.rm_rf(blobstore_storage_dir)
       FileUtils.mkdir_p(blobstore_storage_dir)
-      FileUtils.rm_rf(director_tmp_path)
-      FileUtils.mkdir_p(director_tmp_path)
 
-      reconfigure_director if director_configuration_changed?
+      @uaa_service.start if @user_authentication == 'uaa'
+      @director_service.start(director_config)
+
+      @nginx_service.restart_if_needed
     end
 
     def setup_sandbox_root
-      write_in_sandbox(DIRECTOR_CONFIG, load_config_template(DIRECTOR_CONF_TEMPLATE))
-      write_in_sandbox(DIRECTOR_NGINX_CONFIG, load_config_template(DIRECTOR_NGINX_CONF_TEMPLATE))
       write_in_sandbox(HM_CONFIG, load_config_template(HM_CONF_TEMPLATE))
       write_in_sandbox(REDIS_CONFIG, load_config_template(REDIS_CONF_TEMPLATE))
       write_in_sandbox(EXTERNAL_CPI, load_config_template(EXTERNAL_CPI_TEMPLATE))
       FileUtils.chmod(0755, sandbox_path(EXTERNAL_CPI))
       FileUtils.mkdir_p(sandbox_path('redis'))
       FileUtils.mkdir_p(blobstore_storage_dir)
-    end
-
-    def director_configuration_changed?
-      read_from_sandbox(DIRECTOR_CONFIG) != load_config_template(DIRECTOR_CONF_TEMPLATE)
     end
 
     def read_from_sandbox(filename)
@@ -346,22 +329,45 @@ module Bosh::Dev::Sandbox
       template.result(binding)
     end
 
-    def get_named_port(name)
-      @port_names ||= []
-      @port_names << name unless @port_names.include?(name)
-      61000 + @test_env_number * 100 + @port_names.index(name)
+
+    def setup_database(db_opts)
+      if db_opts[:type] == 'mysql'
+        @database = Mysql.new(@name, @logger, db_opts[:user], db_opts[:password])
+      else
+        @database = Postgresql.new(@name, @logger, @port_provider.get_port(:postgres))
+        # all postgres connections go through this proxy (for testing automatic reconnect)
+        @database_proxy = ConnectionProxyService.new("127.0.0.1", 5432, @port_provider.get_port(:postgres), @logger)
+      end
     end
 
-    DEBUG_HEADER = '*' * 20
+    def setup_heath_monitor
+      @health_monitor_process = Service.new(
+        %W[bosh-monitor -c #{sandbox_path(HM_CONFIG)}],
+        {output: "#{logs_path}/health_monitor.out"},
+        @logger,
+      )
+    end
 
-    def output_service_log(service)
-      @logger.error("#{DEBUG_HEADER} start #{service.description} stdout #{DEBUG_HEADER}")
-      @logger.error(service.stdout_contents)
-      @logger.error("#{DEBUG_HEADER} end #{service.description} stdout #{DEBUG_HEADER}")
+    def base_log_path
+      File.join(logs_path, @name)
+    end
 
-      @logger.error("#{DEBUG_HEADER} start #{service.description} stderr #{DEBUG_HEADER}")
-      @logger.error(service.stderr_contents)
-      @logger.error("#{DEBUG_HEADER} end #{service.description} stderr #{DEBUG_HEADER}")
+    def setup_nats
+      @nats_log_path = File.join(@logs_path, 'nats.log')
+
+      @nats_process = Service.new(
+        %W[nats-server -p #{nats_port} -T -l #{@nats_log_path}],
+        {stdout: $stdout, stderr: $stderr},
+        @logger
+      )
+
+      @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @nats_log_path, @logger)
+    end
+
+    def setup_redis
+      @redis_process = Service.new(%W[redis-server #{sandbox_path(REDIS_CONFIG)}], {}, @logger)
+      @redis_socket_connector = SocketConnector.new('redis', 'localhost', redis_port, 'unknown', @logger)
+      Bosh::Director::Config.redis_options = {host: 'localhost', port: redis_port}
     end
 
     attr_reader :director_tmp_path, :dns_db_path, :task_logs_dir

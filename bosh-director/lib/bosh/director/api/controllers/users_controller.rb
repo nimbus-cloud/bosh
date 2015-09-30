@@ -3,27 +3,44 @@ require 'bosh/director/api/controllers/base_controller'
 module Bosh::Director
   module Api::Controllers
     class UsersController < BaseController
-      post '/users', :consumes => [:json] do
-        user = @user_manager.get_user_from_request(request)
-        @user_manager.create_user(user)
+      def initialize(config)
+        super(config)
+        @identity_provider = config.identity_provider
+      end
+
+      post '/', :consumes => [:json] do
+        validate_user_management_support
+
+        user = @identity_provider.get_user_from_request(request)
+        @identity_provider.create_user(user)
         status(204)
         nil
       end
 
-      put '/users/:username', :consumes => [:json] do
-        user = @user_manager.get_user_from_request(request)
+      put '/:username', :consumes => [:json] do
+        validate_user_management_support
+
+        user = @identity_provider.get_user_from_request(request)
         if user.username != params[:username]
           raise UserImmutableUsername, 'The username is immutable'
         end
-        @user_manager.update_user(user)
+        @identity_provider.update_user(user)
         status(204)
         nil
       end
 
-      delete '/users/:username' do
-        @user_manager.delete_user(params[:username])
+      delete '/:username' do
+        validate_user_management_support
+
+        @identity_provider.delete_user(params[:username])
         status(204)
         nil
+      end
+
+      def validate_user_management_support
+        unless @identity_provider.supports_api_update?
+          raise UserManagementNotSupported, 'User management is not supported via API'
+        end
       end
     end
   end

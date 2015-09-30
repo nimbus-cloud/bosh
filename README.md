@@ -1,49 +1,30 @@
 # BOSH [![Build Status](https://travis-ci.org/cloudfoundry/bosh.png?branch=master)](https://travis-ci.org/cloudfoundry/bosh) [![Code Climate](https://codeclimate.com/github/cloudfoundry/bosh.png)](https://codeclimate.com/github/cloudfoundry/bosh)
 
-Cloud Foundry BOSH is an open source tool chain for release engineering,
-deployment and lifecycle management of large scale distributed services.
+* Documentation:
+	- [bosh.io/docs](https://bosh.io/docs) for installation & usage guide
+	- [docs/ directory](docs/) for developer docs
 
-Our documentation is available at [docs.cloudfoundry.org/bosh](http://docs.cloudfoundry.org/bosh).
+* IRC: [`#bosh` on freenode](http://webchat.freenode.net/?channels=bosh)
 
-## Installing BOSH gems
+* Mailing lists:
+    - [cf-bosh](https://lists.cloudfoundry.org/pipermail/cf-bosh) for asking BOSH usage and development questions
+    - [cf-dev](https://lists.cloudfoundry.org/pipermail/cf-dev) for asking Cloud Foundry questions
 
-To install the latest bosh CLI gems:
+* Deprecated Google groups (use mailing lists above):
+	- [bosh-users](https://groups.google.com/a/cloudfoundry.org/group/bosh-users/topics)
+	- [bosh-dev](https://groups.google.com/a/cloudfoundry.org/group/bosh-dev/topics)
+	- [vcap-dev](https://groups.google.com/a/cloudfoundry.org/group/vcap-dev/topics)
 
-```
-gem install bosh_cli
+* CI: <https://main.bosh-ci.cf-app.com>
 
-# Plugin required for deploying MicroBosh
-gem install bosh_cli_plugin_micro
+* Roadmap: [Pivotal Tracker](https://www.pivotaltracker.com/n/projects/956238)
 
-# Plugin required for 'bosh aws create' and bootstrap commands
-gem install bosh_cli_plugin_aws
-```
+* Related repos:
+	- [bosh-init](https://github.com/cloudfoundry/bosh-init)
+	- [bosh-agent](https://github.com/cloudfoundry/bosh-agent)
+	- [AWS CPI](https://github.com/cloudfoundry-incubator/bosh-aws-cpi-release)
+	- [OpenStack CPI](https://github.com/cloudfoundry-incubator/bosh-openstack-cpi-release)
+	- [vSphere CPI](https://github.com/cloudfoundry-incubator/bosh-vsphere-cpi-release)
+	- [vCloud CPI](https://github.com/cloudfoundry-incubator/bosh-vcloud-cpi-release)
 
-## Using BOSH CLI and plugins from Git
-
-```
-bundle install --binstubs
-export PATH=$(pwd)/bin:$PATH
-which bosh
-```
-
-The `bosh` CLI is now in your `$PATH`, including the `bosh micro` plugin from the git source, rather than any rubygems you have installed.
-
-
-
-## Ask Questions
-
-Questions about the Cloud Foundry Open Source Project can be directed to our Google Groups.
-
-* BOSH Developers: [https://groups.google.com/a/cloudfoundry.org/group/bosh-dev/topics](https://groups.google.com/a/cloudfoundry.org/group/bosh-dev/topics)
-* BOSH Users: [https://groups.google.com/a/cloudfoundry.org/group/bosh-users/topics](https://groups.google.com/a/cloudfoundry.org/group/bosh-users/topics)
-* VCAP (Cloud Foundry) Developers: [https://groups.google.com/a/cloudfoundry.org/group/vcap-dev/topics](https://groups.google.com/a/cloudfoundry.org/group/vcap-dev/topics)
-
-## File a bug
-
-Bugs can be filed using Github Issues within the various repositories of the
-[Cloud Foundry](http://github.com/cloudfoundry) components.
-
-## Contributing
-
-Please read the [contributors' guide](CONTRIBUTING.md)
+Cloud Foundry BOSH is an open source tool chain for release engineering, deployment and lifecycle management of large scale distributed services.

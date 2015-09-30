@@ -17,11 +17,19 @@ launch=<%= db_module %>
 
 config-dir=/var/vcap/jobs/powerdns/config
 daemon=yes
+distributor-threads=<%= p('dns.distributor_threads') %>
+receiver-threads=<%= p('dns.receiver_threads') %>
 guardian=no
 max-tcp-connections=256
 module-dir=/usr/local/lib
 <% if_p('dns.recursor') do |recursor| %>
 recursor=<%= recursor %>
+<% end %>
+<% if_p('dns.local_address') do |local_address| %>
+local-address=<%= local_address %>
+<% end %>
+<% if_p('dns.query_local_address') do |query_local_address| %>
+query-local-address=<%= query_local_address %>
 <% end %>
 setgid=vcap
 setuid=vcap

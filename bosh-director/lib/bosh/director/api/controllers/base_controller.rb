@@ -2,32 +2,34 @@ module Bosh::Director
   module Api
     module Controllers
       class BaseController < Sinatra::Base
-        PUBLIC_URLS = %w(/info)
-
         include ApiHelper
         include Http
         include DnsHelper
 
-        def initialize(*_)
-          super
+        def initialize(config)
+          super()
+          @config = config
+          @identity_provider = config.identity_provider
           @deployment_manager = DeploymentManager.new
           @backup_manager = BackupManager.new
           @instance_manager = InstanceManager.new
           @resurrector_manager = ResurrectorManager.new
-          @problem_manager = ProblemManager.new
-          @property_manager = PropertyManager.new
-          @resource_manager = ResourceManager.new
+          @problem_manager = ProblemManager.new(@deployment_manager)
+          @property_manager = PropertyManager.new(@deployment_manager)
           @release_manager = ReleaseManager.new
           @snapshot_manager = SnapshotManager.new
           @stemcell_manager = StemcellManager.new
           @task_manager = TaskManager.new
-          @user_manager = UserManager.new
           @vm_state_manager = VmStateManager.new
           @logger = Config.logger
         end
 
+        register Bosh::Director::Api::Extensions::Scoping
+
         mime_type :tgz,       'application/x-compressed'
         mime_type :multipart, 'multipart/form-data'
+
+        attr_reader :identity_provider
 
         def self.consumes(*types)
           types = Set.new(types)
@@ -41,23 +43,8 @@ module Bosh::Director
           end
         end
 
-        def authenticate(user, password)
-          if @user_manager.authenticate(user, password)
-            @user = user
-            true
-          else
-            false
-          end
-        end
-
-        helpers ControllerHelpers
-
-        before do
-          auth_provided = %w(HTTP_AUTHORIZATION X-HTTP_AUTHORIZATION X_HTTP_AUTHORIZATION).detect do |key|
-            request.env.has_key?(key)
-          end
-
-          protected! if auth_provided || !PUBLIC_URLS.include?(request.path_info)
+        def requires_authentication?
+          true
         end
 
         after { headers('Date' => Time.now.rfc822) } # As thin doesn't inject date

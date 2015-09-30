@@ -1,7 +1,6 @@
 require 'digest/sha1'
 require 'fileutils'
 require 'securerandom'
-require 'mono_logger'
 
 module Bosh
   module Clouds
@@ -18,14 +17,15 @@ module Bosh
           raise ArgumentError, 'Must specify dir'
         end
 
-        @agent_type = options['agent']['type']
-        unless %w(ruby go).include?(@agent_type)
-          raise ArgumentError, 'Unknown agent type provided'
-        end
-
         @running_vms_dir = File.join(@base_dir, 'running_vms')
+        @tmp_dir = File.join(@base_dir, 'tmp')
+        FileUtils.mkdir_p(@tmp_dir)
 
-        @logger = MonoLogger.new(options['log_device'] || STDOUT)
+        @logger = Logging::Logger.new('DummyCPI')
+        @logger.add_appenders(Logging.appenders.io(
+          'DummyCPIIO',
+          options['log_buffer'] || STDOUT
+        ))
 
         @commands = CommandTransport.new(@base_dir, @logger)
 
@@ -49,9 +49,20 @@ module Bosh
       # rubocop:enable ParameterLists
         @logger.info('Dummy: create_vm')
 
+        ips = []
         cmd = commands.next_create_vm_cmd
 
-        write_agent_default_network(agent_id, cmd.ip_address) if cmd.ip_address
+        if cmd.ip_address
+          # special case used by dynamic IP assignment tests: CPI always chooses its own IP
+          write_agent_default_network(agent_id, cmd.ip_address)
+          ips << { 'network' => 'cloud', 'ip' => cmd.ip_address }
+        else
+          networks.each do |network_name, network|
+            ips << { 'network' => network_name, 'ip' => network['ip'] }
+          end
+        end
+
+        allocate_ips(ips)
 
         write_agent_settings(agent_id, {
           agent_id: agent_id,
@@ -60,24 +71,26 @@ module Bosh
           disks: { persistent: {} },
           networks: networks,
           vm: { name: "vm-#{agent_id}" },
+          cert: '',
           mbus: @options['nats'],
         })
 
         agent_pid = spawn_agent_process(agent_id)
 
         FileUtils.mkdir_p(@running_vms_dir)
-        File.write(vm_file(agent_pid), agent_id)
+        File.write(vm_file(agent_pid), JSON.dump("agent_id" => agent_id, "ips" => ips))
 
         agent_pid.to_s
       end
 
       def delete_vm(vm_name)
         agent_pid = vm_name.to_i
-        Process.kill('INT', agent_pid)
+        Process.kill('KILL', agent_pid)
       # rubocop:disable HandleExceptions
       rescue Errno::ESRCH
       # rubocop:enable HandleExceptions
       ensure
+        free_ips(ips_for_vm_id(vm_name)) if has_vm?(vm_name)
         FileUtils.rm_rf(File.join(@base_dir, 'running_vms', vm_name))
       end
 
@@ -87,6 +100,10 @@ module Bosh
 
       def has_vm?(vm_id)
         File.exists?(vm_file(vm_id))
+      end
+
+      def has_disk?(disk_id)
+        File.exists?(disk_file(disk_id))
       end
 
       def configure_networks(vm_id, networks)
@@ -120,7 +137,7 @@ module Bosh
         write_agent_settings(agent_id, settings)
       end
 
-      def create_disk(size, vm_locality = nil)
+      def create_disk(size, cloud_properties, vm_locality = nil)
         disk_id = SecureRandom.hex
         file = disk_file(disk_id)
         FileUtils.mkdir_p(File.dirname(file))
@@ -151,10 +168,15 @@ module Bosh
         Dir.glob(File.join(@running_vms_dir, '*')).map { |vm| File.basename(vm) }.shuffle
       end
 
+      def disk_cids
+        # Shuffle so that no one relies on the order of disks
+        Dir.glob(disk_file('*')).map { |disk| File.basename(disk) }.shuffle
+      end
+
       def kill_agents
         vm_cids.each do |agent_pid|
           begin
-            Process.kill('INT', agent_pid.to_i)
+            Process.kill('KILL', agent_pid.to_i)
           # rubocop:disable HandleExceptions
           rescue Errno::ESRCH
           # rubocop:enable HandleExceptions
@@ -174,22 +196,50 @@ module Bosh
         root_dir = File.join(agent_base_dir(agent_id), 'root_dir')
         FileUtils.mkdir_p(File.join(root_dir, 'etc', 'logrotate.d'))
 
-        agent_cmd = agent_cmd(agent_id, root_dir)
+        agent_cmd = agent_cmd(agent_id)
         agent_log = agent_log_path(agent_id)
 
-        agent_pid = Process.spawn(*agent_cmd, {
-          chdir: agent_base_dir(agent_id),
-          out: agent_log,
-          err: agent_log,
-        })
+        agent_pid = Process.spawn(
+          { 'TMPDIR' => @tmp_dir },
+          *agent_cmd,
+          {
+            chdir: agent_base_dir(agent_id),
+            out: agent_log,
+            err: agent_log,
+          }
+        )
 
         Process.detach(agent_pid)
 
         agent_pid
       end
 
+      def allocate_ips(ips)
+        ips.each do |ip|
+          begin
+            network_dir = File.join(@base_dir, 'dummy_cpi_networks', ip['network'])
+            FileUtils.makedirs(network_dir)
+            open(File.join(network_dir, ip['ip']), File::WRONLY|File::CREAT|File::EXCL).close
+          rescue Errno::EEXIST
+            # at this point we should actually free all the IPs we successfully allocated before the collision,
+            # but in practice the tests only feed in one IP per VM so that cleanup code would never be exercised
+            raise "IP Address #{ip['ip']} in network '#{ip['network']}' is already in use"
+          end
+        end
+      end
+
+      def free_ips(ips)
+        ips.each do |ip|
+          FileUtils.rm_rf(File.join(@base_dir, 'dummy_cpi_networks', ip['network'], ip['ip']))
+        end
+      end
+
+      def ips_for_vm_id(vm_id)
+        JSON.parse(File.read(vm_file(vm_id)))['ips']
+      end
+
       def agent_id_for_vm_id(vm_id)
-        File.read(vm_file(vm_id))
+        JSON.parse(File.read(vm_file(vm_id)))['agent_id']
       end
 
       def agent_settings_file(agent_id)
@@ -215,12 +265,26 @@ module Bosh
         File.write(path, JSON.generate('ip' => ip_address))
       end
 
-      def agent_cmd(agent_id, root_dir)
-        go_agent_exe = File.expand_path('../../../../go_agent/out/bosh-agent', __FILE__)
-        {
-          'ruby' => %W[bosh_agent      -b #{agent_base_dir(agent_id)} -I dummy -r #{root_dir} --no-alerts],
-          'go'   => %W[#{go_agent_exe} -b #{agent_base_dir(agent_id)} -I dummy -P dummy -M dummy-nats],
-        }[@agent_type.to_s]
+      def agent_cmd(agent_id)
+        agent_config_file = File.join(agent_base_dir(agent_id), 'agent.json')
+
+        agent_config = {
+          'Infrastructure' => {
+            'Settings' => {
+              'Sources' => [{
+                'Type' => 'File',
+                'SettingsPath' => agent_settings_file(agent_id)
+              }],
+              'UseRegistry' => true
+            }
+          }
+        }
+
+        File.write(agent_config_file, JSON.generate(agent_config))
+
+        go_agent_exe = File.expand_path('../../../../go/src/github.com/cloudfoundry/bosh-agent/out/bosh-agent', __FILE__)
+
+        %W[#{go_agent_exe} -b #{agent_base_dir(agent_id)} -P dummy -M dummy-nats -C #{agent_config_file}]
       end
 
       def read_agent_settings(agent_id)

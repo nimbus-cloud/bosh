@@ -21,11 +21,12 @@ end
 module CommandLoggedInUserSharedExamples
   def with_logged_in_user
     before { allow(command).to receive(:logged_in?).and_return(true) }
+    before { allow(command).to receive(:show_current_state) }
   end
 
   def it_requires_logged_in_user(runnable)
     context 'when user is not logged in' do
-      before { command.stub(:logged_in? => false) }
+      before { allow(command).to receive(:logged_in?).and_return(false) }
       before { command.options[:target] = 'http://bosh-target.example.com' }
 
       it 'requires that the user is logged in' do
@@ -57,7 +58,7 @@ end
 
 module CommandDirectorSharedExamples
   def with_director
-    before { command.stub(director: director) }
+    before { allow(command).to receive(:director).and_return(director) }
     let(:director) { instance_double('Bosh::Cli::Client::Director') }
   end
 end

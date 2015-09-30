@@ -1,4 +1,3 @@
-require 'logger'
 require 'common/retryable'
 require 'sequel'
 require 'sequel/adapters/sqlite'
@@ -11,7 +10,8 @@ module Bosh::Dev::VCloud
     def initialize(env, manifest)
       @env = env
       @manifest = manifest
-      @logger = Logger.new($stderr)
+      @logger = Logging.logger(STDERR)
+      @logger.instance_variable_set(:@logdev, OpenStruct.new(dev: 'fake-dev'))
     end
 
     def clean
@@ -27,21 +27,30 @@ module Bosh::Dev::VCloud
       raise ArgumentError, 'Must have exactly one vCD' unless vcds && vcds.size == 1
 
       vcd = vcds[0]
-      @client = VCloudSdk::Client.new(vcd['url'],
-                                     "#{vcd['user']}@#{vcd['entities']['organization']}",
-                                     vcd['password'],
-                                     {},
-                                     @logger)
+
+      @client = VCloudSdk::Client.new(
+        vcd['url'],
+        "#{vcd['user']}@#{vcd['entities']['organization']}",
+        vcd['password'],
+        {},
+        @logger,
+      )
 
       @vdc = @client.find_vdc_by_name(vcd['entities']['virtual_datacenter'])
     end
 
     def delete_vapp
       vapp = @vdc.find_vapp_by_name(@env['BOSH_VCLOUD_VAPP_NAME'])
-      vapp.power_off
+      if vapp.status == 'POWERED_ON'
+        vapp.power_off
+      end
       delete_independent_disks(vapp)
-      vapp.delete
-      @logger.info("Vapp '#{@env['BOSH_VCLOUD_VAPP_NAME']}' was deleted during clean up.")
+      if vapp.send(:entity_xml).remove_link
+        vapp.delete
+        @logger.info("Vapp '#{@env['BOSH_VCLOUD_VAPP_NAME']}' was deleted during clean up.")
+      else
+        @logger.info("Failed to delete the vapp, the remove url was not returned by the sdk.")
+      end
     rescue VCloudSdk::ObjectNotFoundError => e
       @logger.info("No vapp was deleted during clean up. Details: #{e.inspect}")
     end
@@ -63,7 +72,7 @@ module Bosh::Dev::VCloud
       vapp.vms.each do |vm|
         vm.independent_disks.each do |disk|
           vm.detach_disk(disk)
-          disk.delete
+          @vdc.delete_all_disks_by_name(disk.name)
         end
       end
     end

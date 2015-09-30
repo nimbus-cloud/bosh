@@ -14,7 +14,7 @@ module Bosh::Director::Api
         end
       end
 
-      subject(:remover) { described_class.new(3, double('logger')) }
+      subject(:remover) { described_class.new(3) }
 
       context 'when there are fewer than max_tasks in the database' do
         before { make_n_tasks(2) }
@@ -183,6 +183,23 @@ module Bosh::Director::Api
           }.to change {
             Bosh::Director::Models::Task.map(:id)
           }.from((1..5).to_a).to((1..5).to_a - [2])
+        end
+      end
+
+      context 'when task output is nil' do
+        subject(:remover) { described_class.new(0) }
+
+        before do
+          Bosh::Director::Models::Task.make(state: 'done', output: nil)
+          FakeFS.deactivate!
+        end
+
+        after { FakeFS.activate! }
+
+        it 'does not fail' do
+          expect {
+            remover.remove
+          }.to_not raise_error
         end
       end
     end

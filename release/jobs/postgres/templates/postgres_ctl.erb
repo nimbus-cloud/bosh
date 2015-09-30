@@ -10,7 +10,8 @@ HOST=<%= p("postgres.listen_address") %>
 PORT=<%= p("postgres.port") %>
 USER='<%= p("postgres.user") %>'
 PASSWORD='<%= p("postgres.password") %>'
-DBNAME='<%= p("postgres.database") %>'
+DBNAMES=(<%= p("postgres.additional_databases").join(" ") %>)
+DBNAMES+=('<%= p("postgres.database") %>')
 
 SCRIPT=$(basename $0)
 mkdir -p /var/vcap/sys/log/monit
@@ -21,9 +22,12 @@ exec 2>> /var/vcap/sys/log/monit/$SCRIPT.err.log
 case "$1" in
   start)
     mkdir -p $RUN_DIR
+    chown -R vcap:vcap $RUN_DIR
 
     mkdir -p $DATA_DIR
     chown -R vcap:vcap $DATA_DIR
+
+    sysctl -w "kernel.shmmax=67108864"
 
     # We cannot kill the following conditional
     # because initdb is very picky about looking at an empty dir
@@ -39,6 +43,8 @@ case "$1" in
 
       mkdir -p $DATA_DIR/pg_log
     fi
+
+    cp $JOB_DIR/config/postgresql.conf $DATA_DIR
     chown -R vcap:vcap $DATA_DIR/pg_log
 
     chmod +x $JOB_DIR/bin/postgres_backup
@@ -51,14 +57,23 @@ case "$1" in
       echo "PostgreSQL 9.0 started successfully"
       head -n 1 $DATA_DIR/postmaster.pid > $PIDFILE
 
-      echo "Trying to create database..."
-      su - vcap -c "LD_LIBRARY_PATH=$PACKAGE_DIR/lib:$LD_LIBRARY_PATH $PACKAGE_DIR/bin/createdb $DBNAME -p $PORT"
+      set +e
 
-      echo "Trying to create user..."
-      LD_LIBRARY_PATH=$PACKAGE_DIR/lib:$LD_LIBRARY_PATH $PACKAGE_DIR/bin/psql -d $DBNAME -p $PORT -U vcap -c "create role \"$USER\" NOSUPERUSER LOGIN INHERIT CREATEDB"
+      for DBNAME in "${DBNAMES[@]}"
+      do
 
-      echo "Trying to alter user (to change password)..."
-      LD_LIBRARY_PATH=$PACKAGE_DIR/lib:$LD_LIBRARY_PATH $PACKAGE_DIR/bin/psql -d $DBNAME -p $PORT -U vcap -c "alter role \"$USER\" with password '$PASSWORD'"
+        echo "Trying to create database $DBNAME..."
+        su - vcap -c "LD_LIBRARY_PATH=$PACKAGE_DIR/lib:$LD_LIBRARY_PATH $PACKAGE_DIR/bin/createdb $DBNAME -p $PORT"
+
+        echo "Trying to create user..."
+        LD_LIBRARY_PATH=$PACKAGE_DIR/lib:$LD_LIBRARY_PATH $PACKAGE_DIR/bin/psql -d $DBNAME -p $PORT -U vcap -c "create role \"$USER\" NOSUPERUSER LOGIN INHERIT CREATEDB"
+
+        echo "Trying to alter user (to change password)..."
+        LD_LIBRARY_PATH=$PACKAGE_DIR/lib:$LD_LIBRARY_PATH $PACKAGE_DIR/bin/psql -d $DBNAME -p $PORT -U vcap -c "alter role \"$USER\" with password '$PASSWORD'"
+
+      done
+
+      set -e
 
       exit 0
     else

@@ -8,6 +8,7 @@ require "cloud/config"
 require "cloud/errors"
 require "cloud/provider"
 require "cloud/external_cpi"
+require "cloud/internal_cpi"
 
 module Bosh
 
@@ -98,7 +99,7 @@ module Bosh
     end
 
     ##
-    # Deletes a VM
+    # Deletes a VM. If the VM has already been deleted, this call returns normally and has no effect.
     #
     # @param [String] vm vm id that was once returned by {#create_vm}
     # @return [void]
@@ -113,6 +114,15 @@ module Bosh
     # @return [Boolean] True if the vm exists
     def has_vm?(vm_id)
       not_implemented(:has_vm?)
+    end
+
+    ##
+    # Checks if a disk exists
+    #
+    # @param [String] disk disk_id that was once returned by {#create_disk}
+    # @return [Boolean] True if the disk exists
+    def has_disk?(disk_id)
+      not_implemented(:has_disk?)
     end
 
     ##
@@ -154,10 +164,12 @@ module Bosh
     # when it's attached later.
     #
     # @param [Integer] size disk size in MB
+    # @param [Hash] cloud_properties properties required for creating this disk
+    #               specific to a CPI
     # @param [optional, String] vm_locality vm id if known of the VM that this disk will
     #                           be attached to
     # @return [String] opaque id later used by {#attach_disk}, {#detach_disk}, and {#delete_disk}
-    def create_disk(size, vm_locality = nil)
+    def create_disk(size, cloud_properties, vm_locality = nil)
       not_implemented(:create_disk)
     end
 

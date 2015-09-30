@@ -19,7 +19,7 @@ module Bosh::Director
 
       def perform
         @domain = Models::Dns::Domain.find(name: Config.dns_domain_name, type: "NATIVE") if Config.dns_enabled?
-        
+
         vms = Models::Vm.filter(:deployment_id => @deployment_id)
         ThreadPool.new(:max_threads => Config.max_threads).wrap do |pool|
           vms.each do |vm|
@@ -43,9 +43,10 @@ module Bosh::Director
         job_vitals = nil
         job_index = nil
         drbd = nil
+        processes = []
 
         begin
-          agent = AgentClient.with_defaults(vm.agent_id, :timeout => TIMEOUT)
+          agent = AgentClient.with_vm(vm, :timeout => TIMEOUT)
           agent_state = agent.get_state(@format)
           agent_state["networks"].each_value do |network|
             ips << network["ip"]
@@ -64,6 +65,7 @@ module Bosh::Director
           if agent_state["drbd"]
             drbd = agent_state["drbd"]
           end
+          processes = agent_state["processes"] if agent_state["processes"]
         rescue Bosh::Director::RpcTimeout
           job_state = "unresponsive agent"
         end
@@ -77,6 +79,7 @@ module Bosh::Director
 
         {
           :vm_cid => vm.cid,
+          :disk_cid => vm.instance ? vm.instance.persistent_disk_cid : nil,
           :ips => ips,
           :dns => dns_records.flatten,
           :agent_id => vm.agent_id,
@@ -85,6 +88,7 @@ module Bosh::Director
           :job_state => job_state,
           :resource_pool => resource_pool,
           :vitals => job_vitals,
+          :processes => processes,
           :resurrection_paused => vm.instance ? vm.instance.resurrection_paused  : nil,
           :drbd => drbd,
         }

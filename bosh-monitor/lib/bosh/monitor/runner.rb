@@ -34,16 +34,13 @@ module Bosh::Monitor
       end
     end
 
-    def stop(soft=false)
+    def stop
       @logger.info("HealthMonitor shutting down...")
       @http_server.stop! if @http_server
-      EM.stop
-      sleep(0.1) until !EM.reactor_running? # EM.stop is not blocking with EM 1.0
-      exit(0) unless soft
     end
 
     def setup_timers
-      EM.next_tick do
+      EM.schedule do
         poll_director
         EM.add_periodic_timer(@intervals.poll_director) { poll_director }
         EM.add_periodic_timer(@intervals.log_stats) { log_stats }
@@ -86,11 +83,8 @@ module Bosh::Monitor
 
     def start_http_server
       @logger.info "HTTP server is starting on port #{Bhm.http_port}..."
-      @http_server = Thin::Server.new("0.0.0.0", Bhm.http_port, :signals => false) do
+      @http_server = Thin::Server.new("127.0.0.1", Bhm.http_port, :signals => false) do
         Thin::Logging.silent = true
-        use Rack::Auth::Basic do |user, password|
-          [ user, password ] == [ Bhm.http_user, Bhm.http_password ]
-        end
         map "/" do
           run Bhm::ApiController.new
         end
@@ -101,8 +95,6 @@ module Bosh::Monitor
     def poll_director
       @logger.debug "Getting deployments from director..."
       Fiber.new { fetch_deployments }.resume
-      Bhm.set_varz("deployments_count", @agent_manager.deployments_count)
-      Bhm.set_varz("agents_count", @agent_manager.agents_count)
     end
 
     def analyze_agents
@@ -139,6 +131,17 @@ module Bosh::Monitor
       end
     end
 
+    def alert_director_error(message)
+      Bhm.event_processor.process(:alert, {
+        id: SecureRandom.uuid,
+        severity: 3,
+        title: 'Health monitor failed to connect to director',
+        summary: message,
+        created_at: Time.now.to_i,
+        source: 'hm'
+      })
+    end
+
     def fetch_deployments
       deployments = @director.get_deployments
 
@@ -149,15 +152,15 @@ module Bosh::Monitor
 
         @logger.info "Found deployment `#{deployment_name}'"
 
-        vms = @director.get_deployment_vms(deployment_name)
         @logger.debug "Fetching VMs information for `#{deployment_name}'..."
+        vms = @director.get_deployment_vms(deployment_name)
 
         @agent_manager.sync_agents(deployment_name, vms)
       end
 
     rescue Bhm::DirectorError => e
       log_exception(e)
+      alert_director_error(e.message)
     end
-
   end
 end

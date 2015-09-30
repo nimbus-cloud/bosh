@@ -2,65 +2,16 @@ module Bosh::Cli
   module DeploymentHelper
     def prepare_deployment_manifest(options = {})
       deployment_required
-      manifest_filename = deployment
-
-      unless File.exists?(manifest_filename)
-        err("Cannot find deployment manifest in `#{manifest_filename}'")
+      manifest = Manifest.new(deployment, director)
+      manifest.load
+      if options.fetch(:show_state, false)
+        show_current_state(manifest.name)
       end
+      manifest.validate(options)
 
-      manifest = load_yaml_file(manifest_filename)
-      manifest_yaml = File.read(manifest_filename)
-
-      if manifest['name'].blank?
-        err('Deployment name not found in the deployment manifest')
-      end
-
-      if manifest['target']
-        err(manifest_target_upgrade_notice)
-      end
-
-      if options[:resolve_properties]
-        compiler = DeploymentManifestCompiler.new(manifest_yaml)
-        properties = {}
-
-        begin
-          say('Getting deployment properties from director...')
-          properties = director.list_properties(manifest['name'])
-        rescue Bosh::Cli::DirectorError
-          say('Unable to get properties list from director, ' +
-                'trying without it...')
-        end
-
-        say('Compiling deployment manifest...')
-        compiler.properties = properties.inject({}) do |hash, property|
-          hash[property['name']] = property['value']
-          hash
-        end
-
-        manifest = Psych.load(compiler.result)
-      end
-
-      if manifest['name'].blank? || manifest['director_uuid'].blank?
-        err("Invalid manifest `#{File.basename(deployment)}': " +
-              'name and director UUID are required')
-      end
-
-      if director.uuid != manifest['director_uuid']
-        err("Target director UUID doesn't match UUID from deployment manifest")
-      end
-
-      if manifest['release'].blank? && manifest['releases'].blank?
-        err("Deployment manifest doesn't have release information: '" +
-              "please add 'release' or 'releases' section")
-      end
-
-      resolve_release_aliases(manifest)
-      resolve_stemcell_aliases(manifest)
-
-      report_manifest_warnings(manifest)
-
-      options[:yaml] ? Psych.dump(manifest) : manifest
+      manifest
     end
+
 
     # Check if the 2 deployments are different.
     # Print out a summary if "show" is true.
@@ -74,7 +25,7 @@ module Bosh::Cli
         @_diff_key_visited = {}
         diff.keys.each do |key|
           unless @_diff_key_visited[key]
-            print_summary(diff, key)
+            print_summary(diff, key, false)
             nl
           end
         end
@@ -89,11 +40,9 @@ module Bosh::Cli
     # a meaningful return value.
     # @return Boolean Were there any changes in deployment manifest?
     def inspect_deployment_changes(manifest, options = {})
-      show_empty_changeset = true
-
-      if options.has_key?(:show_empty_changeset)
-        show_empty_changeset = options[:show_empty_changeset]
-      end
+      show_empty_changeset = options.fetch(:show_empty_changeset, true)
+      interactive = options.fetch(:interactive, false)
+      redact_diff = options.fetch(:redact_diff, false)
 
       manifest = manifest.dup
       current_deployment = director.get_deployment(manifest['name'])
@@ -106,8 +55,7 @@ module Bosh::Cli
       current_manifest = Psych.load(current_deployment['manifest'])
 
       unless current_manifest.is_a?(Hash)
-        err('Current deployment manifest format is invalid, ' +
-              'check if director works properly')
+        err('Current deployment manifest format is invalid, check if director works properly')
       end
 
       diff = Bosh::Cli::HashChangeset.new
@@ -115,135 +63,67 @@ module Bosh::Cli
       diff.add_hash(normalize_deployment_manifest(current_manifest), :old)
       @_diff_key_visited = { 'name' => 1, 'director_uuid' => 1 }
 
-      say('Detecting changes in deployment...'.make_green)
-      nl
+      header('Detecting deployment changes')
 
       if !diff.changed? && !show_empty_changeset
         return false
       end
 
       if diff[:release]
-        print_summary(diff, :release)
-        warn_about_release_changes(diff[:release])
+        print_summary(diff, :release, redact_diff)
         nl
       end
 
       if diff[:releases]
-        print_summary(diff, :releases)
-        diff[:releases].each do |release_diff|
-          warn_about_release_changes(release_diff)
-        end
+        print_summary(diff, :releases, redact_diff)
         nl
       end
 
-      print_summary(diff, :compilation)
+      print_summary(diff, :compilation, redact_diff)
       nl
 
-      print_summary(diff, :update)
+      print_summary(diff, :update, redact_diff)
       nl
 
-      print_summary(diff, :resource_pools)
-
-      old_stemcells = Set.new
-      new_stemcells = Set.new
-
-      diff[:resource_pools].each do |pool|
-        old_stemcells << {
-          :name => pool[:stemcell][:name].old,
-          :version => pool[:stemcell][:version].old
-        }
-        new_stemcells << {
-          :name => pool[:stemcell][:name].new,
-          :version => pool[:stemcell][:version].new
-        }
-      end
-
-      if old_stemcells != new_stemcells
-        unless confirmed?('Stemcell update has been detected. ' +
-                            'Are you sure you want to update stemcells?')
-          cancel_deployment
-        end
-      end
-
-      if old_stemcells.size != new_stemcells.size
-        say('Stemcell update seems to be inconsistent with current '.make_red +
-              'deployment. Please carefully review changes above.'.make_red)
-        unless confirmed?('Are you sure this configuration is correct?')
-          cancel_deployment
-        end
-      end
-
+      print_summary(diff, :resource_pools, redact_diff)
       nl
-      print_summary(diff, :networks)
+
+      print_summary(diff, :disk_pools, redact_diff)
       nl
-      print_summary(diff, :jobs)
+
+      print_summary(diff, :networks, redact_diff)
       nl
-      print_summary(diff, :properties)
+
+      print_summary(diff, :jobs, redact_diff)
+      nl
+
+      print_summary(diff, :properties, redact_diff)
       nl
 
       diff.keys.each do |key|
         unless @_diff_key_visited[key]
-          print_summary(diff, key)
+          print_summary(diff, key, redact_diff)
           nl
         end
       end
 
       diff.changed?
     rescue Bosh::Cli::ResourceNotFound
-      say('Cannot get current deployment information from director, ' +
-            'possibly a new deployment'.make_red)
+      say('Cannot get current deployment information from director, possibly a new deployment'.make_red)
       true
     end
 
-    def latest_release_versions
-      @_latest_release_versions ||= begin
-        director.list_releases.inject({}) do |hash, release|
-          name = release['name']
-          versions = release['versions'] || release['release_versions'].map { |release_version| release_version['version'] }
-          parsed_versions = versions.map do |version|
-            {
-              original: version,
-              parsed: Bosh::Common::Version::ReleaseVersion.parse(version)
-            }
-          end
-          latest_version = parsed_versions.sort_by {|v| v[:parsed] }.last[:original]
-          hash[name] = latest_version.to_s
-          hash
-        end
-      end
-    end
-
-    # @param [Hash] manifest Deployment manifest (will be modified)
-    # @return [void]
-    def resolve_release_aliases(manifest)
-      releases = manifest['releases'] || [manifest['release']]
-
-      releases.each do |release|
-        if release['version'] == 'latest'
-          latest_release_version = latest_release_versions[release['name']]
-          unless latest_release_version
-            err("Release '#{release['name']}' not found on director. Unable to resolve 'latest' alias in manifest.")
-          end
-          release['version'] = latest_release_version
-        end
-
-        if release['version'].to_i.to_s == release['version']
-          release['version'] = release['version'].to_i
-        end
-      end
-    end
-
-    def job_unique_in_deployment?(job_name)
-      job = find_job(job_name)
+    def job_unique_in_deployment?(manifest_hash, job_name)
+      job = find_job(manifest_hash, job_name)
       job ? job.fetch('instances') == 1 : false
     end
 
-    def job_exists_in_deployment?(job_name)
-      !!find_job(job_name)
+    def job_exists_in_deployment?(manifest_hash, job_name)
+      !!find_job(manifest_hash, job_name)
     end
 
-    def job_must_exist_in_deployment(job)
-      err("Job `#{job}' doesn't exist") unless job_exists_in_deployment?(job)
+    def job_must_exist_in_deployment(manifest_hash, job)
+      err("Job `#{job}' doesn't exist") unless job_exists_in_deployment?(manifest_hash, job)
     end
 
     def prompt_for_job_and_index
@@ -259,8 +139,22 @@ module Bosh::Cli
       end
     end
 
+    # return a job/errand selected by user by name
+    def prompt_for_errand_name
+      errands = list_errands
+
+      err('Deployment has no available errands') if errands.size == 0
+
+      choose do |menu|
+        menu.prompt = 'Choose an errand: '
+        errands.each do |errand, index|
+          menu.choice("#{errand['name']}") { errand }
+        end
+      end
+    end
+
     def jobs_and_indexes
-      jobs = prepare_deployment_manifest.fetch('jobs')
+      jobs = prepare_deployment_manifest.hash.fetch('jobs')
 
       jobs.inject([]) do |jobs_and_indexes, job|
         job_name = job.fetch('name')
@@ -277,9 +171,14 @@ module Bosh::Cli
 
     private
 
-    def find_job(job_name)
-      jobs = prepare_deployment_manifest.fetch('jobs')
+    def find_job(manifest_hash, job_name)
+      jobs = manifest_hash.fetch('jobs')
       jobs.find { |job| job.fetch('name') == job_name }
+    end
+
+    def list_errands
+      deployment_name = prepare_deployment_manifest.name
+      director.list_errands(deployment_name)
     end
 
     def find_deployment(name)
@@ -290,16 +189,7 @@ module Bosh::Cli
       end
     end
 
-    def manifest_target_upgrade_notice
-      <<-EOS.gsub(/^\s*/, '').gsub(/\n$/, '')
-        Please upgrade your deployment manifest to use director UUID instead
-        of target. Just replace 'target' key with 'director_uuid' key in your
-        manifest. You can get your director UUID by targeting your director
-        with 'bosh target' and running 'bosh status' command afterwards.
-      EOS
-    end
-
-    def print_summary(diff, key, title = nil)
+    def print_summary(diff, key, redact, title = nil)
       title ||= key.to_s.gsub(/[-_]/, ' ').capitalize
 
       say(title.make_green)
@@ -308,7 +198,11 @@ module Bosh::Cli
       if !summary || summary.empty?
         say('No changes')
       else
-        say(summary.join("\n"))
+        if redact
+          say("Changes found - Redacted")
+        else
+          say(summary.join("\n"))
+        end
       end
 
       @_diff_key_visited[key.to_s] = 1
@@ -316,72 +210,6 @@ module Bosh::Cli
 
     def normalize_deployment_manifest(manifest_hash)
       DeploymentManifest.new(manifest_hash).normalize
-    end
-
-    def warn_about_release_changes(release_diff)
-      if release_diff[:name].changed?
-        say('Release name has changed: %s -> %s'.make_red % [
-          release_diff[:name].old, release_diff[:name].new])
-        unless confirmed?('This is very serious and potentially destructive ' +
-                            'change. ARE YOU SURE YOU WANT TO DO IT?')
-          cancel_deployment
-        end
-      elsif release_diff[:version].changed?
-        say('Release version has changed: %s -> %s'.make_yellow % [
-          release_diff[:version].old, release_diff[:version].new])
-        unless confirmed?('Are you sure you want to deploy this version?')
-          cancel_deployment
-        end
-      end
-    end
-
-    # @param [Hash] manifest Deployment manifest (will be modified)
-    # @return [void]
-    def resolve_stemcell_aliases(manifest)
-      return if manifest['resource_pools'].nil?
-
-      manifest['resource_pools'].each do |rp|
-        stemcell = rp['stemcell']
-        unless stemcell.is_a?(Hash)
-          err('Invalid stemcell spec in the deployment manifest')
-        end
-        if stemcell['version'] == 'latest'
-          latest_version = latest_stemcells[stemcell['name']]
-          if latest_version.nil?
-            err("Latest version for stemcell `#{stemcell['name']}' is unknown")
-          end
-          # Avoiding {Float,Fixnum} -> String noise in diff
-          if latest_version.to_s == latest_version.to_f.to_s
-            latest_version = latest_version.to_f
-          elsif latest_version.to_s == latest_version.to_i.to_s
-            latest_version = latest_version.to_i
-          end
-          stemcell['version'] = latest_version
-        end
-      end
-    end
-
-    # @return [Array]
-    def latest_stemcells
-      @_latest_stemcells ||= begin
-        stemcells = director.list_stemcells.inject({}) do |hash, stemcell|
-          unless stemcell.is_a?(Hash) && stemcell['name'] && stemcell['version']
-            err('Invalid director stemcell list format')
-          end
-          hash[stemcell['name']] ||= []
-          hash[stemcell['name']] << stemcell['version']
-          hash
-        end
-
-        stemcells.inject({}) do |hash, (name, versions)|
-          hash[name] = Bosh::Common::Version::StemcellVersion.parse_list(versions).latest.to_s
-          hash
-        end
-      end
-    end
-
-    def report_manifest_warnings(manifest)
-      ManifestWarnings.new(manifest).report
     end
   end
 end

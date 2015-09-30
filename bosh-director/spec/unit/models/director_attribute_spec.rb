@@ -5,7 +5,6 @@ require 'bosh/director/models/director_attribute'
 module Bosh::Director::Models
   describe DirectorAttribute do
     describe '.find_or_create_uuid' do
-      let(:logger) { Logger.new('/dev/null') }
 
       context 'when uuid is found' do
         it 'returns uuid value' do
@@ -43,8 +42,6 @@ module Bosh::Director::Models
     end
 
     describe '.update_or_create_uuid' do
-      let(:logger) { Logger.new('/dev/null') }
-
       context 'when uuid is found' do
         context 'when old uuid is same as new' do
           before { described_class.create(name: 'uuid', value: 'fake-uuid') }
@@ -110,7 +107,7 @@ module Bosh::Director::Models
         described_class.create(name: 'fake-name', value: 'fake-uuid')
         expect {
           described_class.create(name: 'fake-name', value: 'other-fake-uuid')
-        }.to raise_error(Sequel::DatabaseError)
+        }.to raise_error(Sequel::DatabaseError, /(column name is not unique|UNIQUE constraint failed)/)
       end
     end
   end

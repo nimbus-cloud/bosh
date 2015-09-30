@@ -9,7 +9,6 @@ module Bosh::Director
     let(:agent_client) { instance_double('Bosh::Director::AgentClient') }
     let(:job_renderer) { instance_double('Bosh::Director::JobRenderer') }
     let(:cloud) { instance_double('Bosh::Cloud') }
-    let(:logger) { Logger.new('/dev/null') }
 
     describe '#update' do
       def self.it_updates_vm(new_disk_cid)
@@ -71,7 +70,7 @@ module Bosh::Director
 
             @disk_attacher2 = instance_double('Bosh::Director::InstanceUpdater::VmUpdater::DiskAttacher')
           end
-          
+
           context 'when creating/deleting/attaching-disk succeeds in given number of retries' do
             it 'stops retrying deleting/creating/attaching-disk vm and raises CloudNotEnoughDiskSpace error' do
               expect(InstanceUpdater::VmUpdater::VmDeleter).to receive(:new).
@@ -81,12 +80,12 @@ module Bosh::Director
               expect(InstanceUpdater::VmUpdater::VmDeleter).to receive(:new).
                 with(instance, @vm_model1, cloud, logger).and_return(@vm_deleter2)
               expect(@vm_deleter2).to receive(:delete).once.with(no_args)
-  
+
               expect(InstanceUpdater::VmUpdater::VmCreator).to receive(:new).
                 with(instance, cloud, logger).and_return(@vm_creator1, @vm_creator2)
               expect(@vm_creator1).to receive(:create).once.with(new_disk_cid).and_return([@vm_model1, @agent_client1])
               expect(@vm_creator2).to receive(:create).once.with(new_disk_cid).and_return([@vm_model2, @agent_client2])
-  
+
               expect(InstanceUpdater::VmUpdater::DiskAttacher).to receive(:new).
                 with(instance, @vm_model1, @agent_client1, cloud, logger).and_return(disk_attacher)
               expect(InstanceUpdater::VmUpdater::DiskAttacher).to receive(:new).
@@ -327,14 +326,20 @@ module Bosh::Director
 
   describe InstanceUpdater::VmUpdater::VmCreator do
     subject!(:vm_creator) { described_class.new(instance, cloud, logger) }
-    let(:instance) { instance_double('Bosh::Director::DeploymentPlan::Instance', model: instance_model) }
+    let(:deployment_vm) { instance_double('Bosh::Director::DeploymentPlan::Vm')}
+    let(:instance) {
+      instance_double('Bosh::Director::DeploymentPlan::Instance',
+        model: instance_model,
+        bind_to_vm_model: nil,
+        vm: deployment_vm) }
     let(:instance_model) { Models::Instance.make(vm: nil) }
     let(:cloud) { instance_double('Bosh::Cloud') }
-    let(:logger) { Logger.new('/dev/null') }
 
     describe '#create' do
       before { allow(instance).to receive(:job).with(no_args).and_return(job) }
       let(:job) { instance_double('Bosh::Director::DeploymentPlan::Job') }
+
+      before { allow(deployment_vm).to receive('model=').with(vm_model)}
 
       before { allow(job).to receive(:deployment).with(no_args).and_return(deployment_plan) }
       let(:deployment_plan) { instance_double('Bosh::Director::DeploymentPlan::Planner', model: deployment_model) }
@@ -354,7 +359,10 @@ module Bosh::Director
       before { allow(instance_model).to receive(:persistent_disk_cid).with(no_args).and_return(nil) }
 
       before { allow(AgentClient).to receive(:with_defaults).and_return(agent_client) }
-      let(:agent_client) { instance_double('Bosh::Director::AgentClient', wait_until_ready: nil) }
+      let(:agent_client) {
+        instance_double('Bosh::Director::AgentClient',
+          wait_until_ready: nil,
+          update_settings: nil) }
 
       let(:vm_model) { Models::Vm.make }
 
@@ -419,10 +427,10 @@ module Bosh::Director
       context 'when vm creation succeeds' do
         before { allow(Bosh::Director::VmCreator).to receive(:create).and_return(vm_model) }
 
-        it 'saves association between instance and the vm model' do
-          expect {
-            vm_creator.create(nil)
-          }.to change { instance_model.refresh.vm }.from(nil).to(vm_model)
+        it 'binds vm model to the instance' do
+          expect(instance).to receive(:bind_to_vm_model).with(vm_model)
+
+          vm_creator.create(nil)
         end
 
         it 'waits for new VM agent to respond' do
@@ -436,7 +444,7 @@ module Bosh::Director
         end
 
         context 'when saving association between instance and the vm model fails' do
-          before { allow(instance_model).to receive(:save).and_raise(error) }
+          before { allow(instance).to receive(:bind_to_vm_model).and_raise(error) }
           let(:error) { Exception.new }
 
           it 'raises association error after deleting created vm from the cloud and the database' do
@@ -485,6 +493,48 @@ module Bosh::Director
           expect { vm_creator.create(nil) }.to raise_error(error)
         end
       end
+
+      context 'trusted certificate handling' do
+        before do
+          Bosh::Director::Config.trusted_certs=DIRECTOR_TEST_CERTS
+          allow(Bosh::Director::VmCreator).to receive(:create).and_return(vm_model)
+
+          vm_deleter = instance_double('Bosh::Director::InstanceUpdater::VmUpdater::VmDeleter')
+          allow(InstanceUpdater::VmUpdater::VmDeleter).to receive(:new).
+            with(instance, vm_model, cloud, logger).
+            and_return(vm_deleter)
+          allow(vm_deleter).to receive(:delete)
+        end
+
+        it 'should update the database with the new VM''s trusted certs' do
+          vm_creator.create(nil)
+          expect(Models::Vm.where(trusted_certs_sha1: DIRECTOR_TEST_CERTS_SHA1, agent_id: vm_model.agent_id).count).to eq(1)
+        end
+
+        it 'should not update the DB with the new certificates when the new vm fails to start' do
+          expect(agent_client).to receive(:wait_until_ready).and_raise(RpcTimeout)
+
+          begin
+            vm_creator.create(nil)
+          rescue RpcTimeout
+            # expected
+          end
+
+          expect(Models::Vm.where(trusted_certs_sha1: DIRECTOR_TEST_CERTS_SHA1).count).to eq(0)
+        end
+
+        it 'should not update the DB with the new certificates when the update_settings method fails' do
+          expect(agent_client).to receive(:update_settings).and_raise(RpcTimeout)
+
+          begin
+            vm_creator.create(nil)
+          rescue RpcTimeout
+            # expected
+          end
+
+          expect(Models::Vm.where(trusted_certs_sha1: DIRECTOR_TEST_CERTS_SHA1).count).to eq(0)
+        end
+      end
     end
   end
 
@@ -494,7 +544,6 @@ module Bosh::Director
     let(:instance_model) { Models::Instance.make(vm: vm_model) }
     let(:vm_model) { Models::Vm.make }
     let(:cloud) { instance_double('Bosh::Cloud') }
-    let(:logger) { Logger.new('/dev/null') }
 
     describe '#delete' do
       it 'tries to delete VM from the cloud' do
@@ -540,7 +589,6 @@ module Bosh::Director
     let(:vm_model) { instance_double('Bosh::Director::Models::Vm', cid: 'fake-vm-cid') }
     let(:agent_client) { instance_double('Bosh::Director::AgentClient') }
     let(:cloud) { instance_double('Bosh::Cloud') }
-    let(:logger) { Logger.new('/dev/null') }
 
     describe '#attach' do
       context 'when disk cid is present' do
@@ -572,12 +620,10 @@ module Bosh::Director
     let(:vm_model) { instance_double('Bosh::Director::Models::Vm', cid: 'fake-vm-cid') }
     let(:agent_client) { instance_double('Bosh::Director::AgentClient') }
     let(:cloud) { instance_double('Bosh::Cloud') }
-    let(:logger) { Logger.new('/dev/null') }
 
     describe '#detach' do
       context 'when disk is not currently attached' do
-        before { allow(instance).to receive(:disk_currently_attached?).with(no_args).and_return(false) }
-
+        before { allow(agent_client).to receive(:list_disk).and_return([]) }
         it 'does not try to unmount and detach disk' do
           expect(agent_client).to_not receive(:unmount_disk)
           expect(cloud).to_not receive(:detach_disk)
@@ -586,7 +632,7 @@ module Bosh::Director
       end
 
       context 'when disk is attached' do
-        before { allow(instance).to receive(:disk_currently_attached?).with(no_args).and_return(true) }
+        before { allow(agent_client).to receive(:list_disk).and_return(['fake-disk-cid']) }
 
         context 'when disk cid can be determined' do
           before { allow(instance_model).to receive(:persistent_disk_cid).and_return('fake-disk-cid') }

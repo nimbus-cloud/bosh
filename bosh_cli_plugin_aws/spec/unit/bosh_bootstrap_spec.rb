@@ -1,12 +1,12 @@
 require 'spec_helper'
 
-module Bosh::Aws
+module Bosh::AwsCliPlugin
   describe BoshBootstrap do
     subject(:bootstrap) { described_class.new(director, s3, {}) }
 
-    let(:s3) { instance_double('Bosh::Aws::S3') }
+    let(:s3) { instance_double('Bosh::AwsCliPlugin::S3') }
 
-    let(:manifest) { instance_double('Bosh::Aws::BoshManifest',
+    let(:manifest) { instance_double('Bosh::AwsCliPlugin::BoshManifest',
                                      deployment_name: '',
                                      file_name: '').as_null_object }
     before { allow(BoshManifest).to receive(:new).and_return(manifest) }
@@ -20,11 +20,14 @@ module Bosh::Aws
     let(:deployment_command) { instance_double('Bosh::Cli::Command::Deployment').as_null_object }
     before { allow(Bosh::Cli::Command::Deployment).to receive(:new).and_return(deployment_command) }
 
-    let(:release_command) { instance_double('Bosh::Cli::Command::Release').as_null_object }
-    before { allow(Bosh::Cli::Command::Release).to receive(:new).and_return(release_command) }
+    let(:upload_command) { instance_double('Bosh::Cli::Command::Release::UploadRelease').as_null_object }
+    before { allow(Bosh::Cli::Command::Release::UploadRelease).to receive(:new).and_return(upload_command) }
 
     let(:misc_command) { instance_double('Bosh::Cli::Command::Misc', options: {}).as_null_object }
     before { allow(Bosh::Cli::Command::Misc).to receive(:new).and_return(misc_command) }
+
+    let(:login_command) { instance_double('Bosh::Cli::Command::Login', options: {}).as_null_object }
+    before { allow(Bosh::Cli::Command::Login).to receive(:new).and_return(login_command) }
 
     describe '#start' do
       context 'stemcell exists on director' do
@@ -33,8 +36,8 @@ module Bosh::Aws
         end
 
         context 'release does not exist on dir director' do
-          it 'downloads correct release version by correctly parsing Bosh::Aws::VERSION' do
-            stub_const('Bosh::Aws::VERSION', '1.123.0')
+          it 'downloads correct release version by correctly parsing Bosh::AwsCliPlugin::VERSION' do
+            stub_const('Bosh::AwsCliPlugin::VERSION', '1.123.0')
 
             allow(bootstrap).to receive(:load_yaml_file)
             allow(bootstrap).to receive(:write_yaml)
@@ -75,8 +78,8 @@ module Bosh::Aws
 
             expect(s3).to have_received(:copy_remote_file).with('bosh-jenkins-artifacts', 'bosh-stemcell/aws/fake-stemcell-archive-filename', 'bosh_stemcell.tgz')
 
-            expect(Bosh::Stemcell::ArchiveFilename).to have_received(:new).with('latest', definition, 'bosh-stemcell', true)
-            expect(Bosh::Stemcell::Definition).to have_received(:for).with('aws', 'ubuntu', 'lucid', 'ruby')
+            expect(Bosh::Stemcell::ArchiveFilename).to have_received(:new).with('latest', definition, 'bosh-stemcell', 'raw')
+            expect(Bosh::Stemcell::Definition).to have_received(:for).with('aws', 'xen', 'ubuntu', 'trusty', 'go', true)
             expect(stemcell_command).to have_received(:upload).with(stemcell_path)
             expect(Bosh::Stemcell::Archive).to have_received(:new).with(stemcell_path)
           end

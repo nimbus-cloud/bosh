@@ -11,24 +11,29 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = Gem::Requirement.new('>= 1.9.3')
 
-  spec.files         = `git ls-files -- lib/*`.split($/)
+  spec.files         = Dir['lib/**/*'].select{ |f| File.file? f }
   spec.executables   = spec.files.grep(%r{^bin/}) { |f| File.basename(f) }
   spec.test_files    = spec.files.grep(%r{^(test|spec|features)/})
   spec.require_paths = %w[lib]
 
   spec.add_dependency 'bosh_common'
   spec.add_dependency 'bosh-core'
+  spec.add_dependency 'bosh-director'
   spec.add_dependency 'bosh-stemcell'
   spec.add_dependency 'peach'
   spec.add_dependency 'bosh_cli'
   spec.add_dependency 'bosh_cli_plugin_aws'
   spec.add_dependency 'bundler'
+  spec.add_dependency 'logging'
 
-  spec.add_dependency('ruby_vcloud_sdk', '>=0.5.1')
+  spec.add_dependency('ruby_vcloud_sdk', '=0.7.1')
 
   spec.add_development_dependency 'rake'
-  spec.add_development_dependency 'rspec'
+  spec.add_development_dependency 'rspec', '~> 3.0.0'
   spec.add_development_dependency 'rspec-its'
   spec.add_development_dependency 'fakefs'
   spec.add_development_dependency 'rugged'
+  spec.add_development_dependency 'webmock'
+  spec.add_development_dependency 'dogapi'
+  spec.add_development_dependency 'timecop'
 end

@@ -6,113 +6,117 @@ module Bosh::Director
     describe Controllers::UsersController do
       include Rack::Test::Methods
 
-      let!(:temp_dir) { Dir.mktmpdir}
+      subject(:app) { described_class.new(config) }
+      let(:config) { Config.load_hash(test_config) }
 
-      before do
+      let(:temp_dir) { Dir.mktmpdir }
+      let(:test_config) do
         blobstore_dir = File.join(temp_dir, 'blobstore')
         FileUtils.mkdir_p(blobstore_dir)
 
-        test_config = Psych.load(spec_asset('test-director-config.yml'))
-        test_config['dir'] = temp_dir
-        test_config['blobstore'] = {
+        config = Psych.load(spec_asset('test-director-config.yml'))
+        config['dir'] = temp_dir
+        config['blobstore'] = {
           'provider' => 'local',
           'options' => {'blobstore_path' => blobstore_dir}
         }
-        test_config['snapshots']['enabled'] = true
-        Config.configure(test_config)
-        @director_app = App.new(Config.load_hash(test_config))
+        config['snapshots']['enabled'] = true
+        config
       end
 
-      after do
-        FileUtils.rm_rf(temp_dir)
-      end
+      after { FileUtils.rm_rf(temp_dir) }
 
-      def app
-        @rack_app ||= Controller.new
-      end
+      context 'when user management via API is supported' do
+        before { test_config.delete('user_management') }
 
-      def login_as_admin
-        basic_authorize 'admin', 'admin'
-      end
+        describe 'API calls' do
+          before(:each) { basic_authorize 'admin', 'admin' }
 
-      def login_as(username, password)
-        basic_authorize username, password
-      end
+          describe 'users' do
+            let (:username) { 'john' }
+            let (:password) { '123' }
+            let (:user_data) { {'username' => 'john', 'password' => '123'} }
 
-      it 'requires auth' do
-        get '/'
-        last_response.status.should == 401
-      end
+            it 'creates a user' do
+              expect(Models::User.all.size).to eq(0)
 
-      it 'sets the date header' do
-        get '/'
-        last_response.headers['Date'].should_not be_nil
-      end
+              post '/', Yajl::Encoder.encode(user_data), {'CONTENT_TYPE' => 'application/json'}
 
-      it "allows Basic HTTP Auth with admin/admin credentials for test purposes (even though user doesn't exist)" do
-        basic_authorize 'admin', 'admin'
-        get '/'
-        last_response.status.should == 404
-      end
+              new_user = Models::User[:username => username]
+              expect(new_user).not_to be_nil
+              expect(BCrypt::Password.new(new_user.password)).to eq(password)
+            end
 
-      describe 'API calls' do
-        before(:each) { login_as_admin }
+            it "doesn't create a user with existing username" do
+              post '/', Yajl::Encoder.encode(user_data), {'CONTENT_TYPE' => 'application/json'}
 
-        describe 'users' do
-          let (:username) { 'john' }
-          let (:password) { '123' }
-          let (:user_data) { {'username' => 'john', 'password' => '123'} }
+              basic_authorize(username, password)
+              post '/', Yajl::Encoder.encode(user_data), {'CONTENT_TYPE' => 'application/json'}
 
-          it 'creates a user' do
-            Models::User.all.size.should == 0
+              expect(last_response.status).to eq(400)
+              expect(Models::User.all.size).to eq(1)
+            end
 
-            post '/users', Yajl::Encoder.encode(user_data), { 'CONTENT_TYPE' => 'application/json' }
+            it 'updates user password but not username' do
+              post '/', Yajl::Encoder.encode(user_data), {'CONTENT_TYPE' => 'application/json'}
 
-            new_user = Models::User[:username => username]
-            new_user.should_not be_nil
-            BCrypt::Password.new(new_user.password).should == password
+              basic_authorize(username, password)
+              new_data = {'username' => username, 'password' => '456'}
+              put "/#{username}", Yajl::Encoder.encode(new_data), {'CONTENT_TYPE' => 'application/json'}
+
+              expect(last_response.status).to eq(204)
+              user = Models::User[:username => username]
+              expect(BCrypt::Password.new(user.password)).to eq('456')
+
+              basic_authorize(username, '456')
+              change_name = {'username' => 'john2', 'password' => password}
+              put "/#{username}", Yajl::Encoder.encode(change_name), {'CONTENT_TYPE' => 'application/json'}
+              expect(last_response.status).to eq(400)
+              expect(last_response.body).to eq(
+                  "{\"code\":20001,\"description\":\"The username is immutable\"}"
+                )
+            end
+
+            it 'deletes user' do
+              post '/', Yajl::Encoder.encode(user_data), {'CONTENT_TYPE' => 'application/json'}
+
+              basic_authorize(username, password)
+              delete "/#{username}"
+
+              expect(last_response.status).to eq(204)
+
+              user = Models::User[:username => username]
+              expect(user).to be_nil
+            end
           end
+        end
+      end
 
-          it "doesn't create a user with exising username" do
-            post '/users', Yajl::Encoder.encode(user_data), { 'CONTENT_TYPE' => 'application/json' }
+      context 'when user management via API is not supported' do
+        before(:each) { basic_authorize 'admin', 'admin' }
 
-            login_as(username, password)
-            post '/users', Yajl::Encoder.encode(user_data), { 'CONTENT_TYPE' => 'application/json' }
+        it 'fails to create user' do
+          post '/', '', {'CONTENT_TYPE' => 'application/json'}
+          expect(last_response.status).to eq(400)
+          expect(last_response.body).to eq(
+              "{\"code\":20004,\"description\":\"User management is not supported via API\"}"
+            )
+        end
 
-            last_response.status.should == 400
-            Models::User.all.size.should == 1
-          end
+        it 'fails to update user' do
+          put '/fake-user', '', {'CONTENT_TYPE' => 'application/json'}
+          expect(last_response.status).to eq(400)
+          expect(last_response.body).to eq(
+              "{\"code\":20004,\"description\":\"User management is not supported via API\"}"
+            )
+        end
 
-          it 'updates user password but not username' do
-            post '/users', Yajl::Encoder.encode(user_data), { 'CONTENT_TYPE' => 'application/json' }
-
-            login_as(username, password)
-            new_data = {'username' => username, 'password' => '456'}
-            put "/users/#{username}", Yajl::Encoder.encode(new_data), { 'CONTENT_TYPE' => 'application/json' }
-
-            last_response.status.should == 204
-            user = Models::User[:username => username]
-            BCrypt::Password.new(user.password).should == '456'
-
-            login_as(username, '456')
-            change_name = {'username' => 'john2', 'password' => password}
-            put "/users/#{username}", Yajl::Encoder.encode(change_name), { 'CONTENT_TYPE' => 'application/json' }
-            last_response.status.should == 400
-            last_response.body.should ==
-              "{\"code\":20001,\"description\":\"The username is immutable\"}"
-          end
-
-          it 'deletes user' do
-            post '/users', Yajl::Encoder.encode(user_data), { 'CONTENT_TYPE' => 'application/json' }
-
-            login_as(username, password)
-            delete "/users/#{username}"
-
-            last_response.status.should == 204
-
-            user = Models::User[:username => username]
-            user.should be_nil
-          end
+        it 'fails to delete user' do
+          delete '/fake-user'
+          expect(last_response.status).to eq(400)
+          expect(last_response.body).to eq(
+              "{\"code\":20004,\"description\":\"User management is not supported via API\"}"
+            )
         end
       end
     end

@@ -62,7 +62,7 @@ module Bosh::Registry
 
       response = @client.put(url, {:body => payload, :header => @headers})
 
-      if response.status != 200
+      unless HTTP::Status.successful?(response.status)
         cloud_error("Cannot update settings for '#{instance_id}', got HTTP #{response.status}")
       end
 
@@ -108,7 +108,7 @@ module Bosh::Registry
 
       response = @client.delete(url, {:header => @headers})
 
-      if response.status != 200
+      unless [200, 404].include? response.status
         cloud_error("Cannot delete settings for '#{instance_id}', got HTTP #{response.status}")
       end
 

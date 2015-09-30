@@ -5,7 +5,7 @@ require 'bosh/stemcell/archive_filename'
 require 'bosh/stemcell/definition'
 
 module Bosh
-  module Aws
+  module AwsCliPlugin
     BootstrapError = Class.new(StandardError)
 
     class BoshBootstrap < Bootstrap
@@ -64,7 +64,7 @@ This command should be used for bootstrapping bosh from scratch.
           vpc_config = load_yaml_file(vpc_receipt_filename)
           route53_config = load_yaml_file(route53_receipt_filename)
           bosh_rds_config = load_yaml_file(bosh_rds_receipt_filename)
-          @manifest = Bosh::Aws::BoshManifest.new(vpc_config, route53_config, director.uuid, bosh_rds_config, options)
+          @manifest = Bosh::AwsCliPlugin::BoshManifest.new(vpc_config, route53_config, director.uuid, bosh_rds_config, options)
         end
 
         @manifest
@@ -84,9 +84,9 @@ This command should be used for bootstrapping bosh from scratch.
       end
 
       def fetch_and_upload_release
-        release_command = Bosh::Cli::Command::Release.new
-        release_command.options = self.options
-        release_command.upload(bosh_release)
+        upload_command = Bosh::Cli::Command::Release::UploadRelease.new
+        upload_command.options = self.options
+        upload_command.upload(bosh_release)
       end
 
       def target_bosh_and_log_in
@@ -94,9 +94,12 @@ This command should be used for bootstrapping bosh from scratch.
         misc_command.options = self.options
         misc_command.set_target(manifest.vip)
         misc_command.options[:target] = manifest.vip
-        misc_command.login('admin', 'admin')
 
-        self.options[:target] = misc_command.config.target
+        login_command = Bosh::Cli::Command::Login.new
+        login_command.options = misc_command.options
+        login_command.login('admin', 'admin')
+
+        self.options[:target] = login_command.config.target
       end
 
       def deploy
@@ -104,7 +107,7 @@ This command should be used for bootstrapping bosh from scratch.
         deployment_command.options = self.options
         deployment_command.perform
 
-        new_director = Bosh::Cli::Client::Director.new("https://#{manifest.vip}:25555", nil, nil,
+        new_director = Bosh::Cli::Client::Director.new("https://#{manifest.vip}:25555", nil,
                                                num_retries: 12, retry_wait_interval: 5)
         new_director.wait_until_ready
       end
@@ -129,8 +132,8 @@ This command should be used for bootstrapping bosh from scratch.
       end
 
       def latest_aws_ubuntu_bosh_stemcell_filename
-        definition = Bosh::Stemcell::Definition.for('aws', 'ubuntu', 'lucid', 'ruby')
-        Bosh::Stemcell::ArchiveFilename.new('latest', definition, 'bosh-stemcell', true)
+        definition = Bosh::Stemcell::Definition.for('aws', 'xen', 'ubuntu', 'trusty', 'go', true)
+        Bosh::Stemcell::ArchiveFilename.new('latest', definition, 'bosh-stemcell', 'raw')
       end
 
       def bosh_release
@@ -150,7 +153,7 @@ This command should be used for bootstrapping bosh from scratch.
       end
 
       def bosh_version
-        env['BOSH_VERSION_OVERRIDE'] || Bosh::Aws::VERSION.split('.')[1]
+        env['BOSH_VERSION_OVERRIDE'] || Bosh::AwsCliPlugin::VERSION.split('.')[1]
       end
     end
   end

@@ -9,10 +9,11 @@ describe Bosh::Registry::InstanceManager do
     valid_config.merge({'cloud' => {
       'plugin' => 'openstack',
       'openstack' => {
-        'auth_url' => 'http://127.0.0.1:5000/v2.0',
+        'auth_url' => 'http://127.0.0.1:5000/v3.0',
         'username' => 'foo',
         'api_key' => 'bar',
         'tenant' => 'foo',
+        'domain' => 'mydomain',
         'region' => '',
         'connection_options' => connection_options,
       }
@@ -32,20 +33,21 @@ describe Bosh::Registry::InstanceManager do
     servers = double('servers')
     instance = double('instance')
 
-    compute.should_receive(:servers).and_return(servers)
-    servers.should_receive(:find).and_return(instance)
-    instance.should_receive(:private_ip_addresses).and_return([private_ip])
-    instance.should_receive(:floating_ip_addresses).and_return([floating_ip])
+    expect(compute).to receive(:servers).and_return(servers)
+    expect(servers).to receive(:find).and_return(instance)
+    expect(instance).to receive(:private_ip_addresses).and_return([private_ip])
+    expect(instance).to receive(:floating_ip_addresses).and_return([floating_ip])
   end
 
   describe :openstack do
     let(:openstack_compute) {
       {
         :provider => 'OpenStack',
-        :openstack_auth_url => 'http://127.0.0.1:5000/v2.0/tokens',
+        :openstack_auth_url => 'http://127.0.0.1:5000/v3.0/tokens',
         :openstack_username => 'foo',
         :openstack_api_key => 'bar',
         :openstack_tenant => 'foo',
+        :openstack_domain_name => 'mydomain',
         :openstack_region => '',
         :openstack_endpoint_type => nil,
         :connection_options => connection_options,
@@ -53,7 +55,7 @@ describe Bosh::Registry::InstanceManager do
     }
 
     it 'should create a Fog::Compute connection' do
-      Fog::Compute.should_receive(:new).with(openstack_compute).and_return(compute)
+      expect(Fog::Compute).to receive(:new).with(openstack_compute).and_return(compute)
       expect(manager.openstack).to eql(compute)
     end
 
@@ -65,7 +67,7 @@ describe Bosh::Registry::InstanceManager do
       }
 
       it 'should add optional options to the Fog::Compute connection' do
-        Fog::Compute.should_receive(:new).with(openstack_compute).and_return(compute)
+        expect(Fog::Compute).to receive(:new).with(openstack_compute).and_return(compute)
         expect(manager.openstack).to eql(compute)
       end
     end
@@ -73,19 +75,19 @@ describe Bosh::Registry::InstanceManager do
 
   describe 'reading settings' do
     before(:each) do
-      Fog::Compute.stub(:new).and_return(compute)
+      allow(Fog::Compute).to receive(:new).and_return(compute)
     end
 
     it 'returns settings after verifying IP address' do
       create_instance(:instance_id => 'foo', :settings => 'bar')
       actual_ip_is('10.0.0.1', nil)
-      manager.read_settings('foo', '10.0.0.1').should == 'bar'
+      expect(manager.read_settings('foo', '10.0.0.1')).to eq('bar')
     end
 
     it 'returns settings after verifying floating IP address' do
       create_instance(:instance_id => 'foo', :settings => 'bar')
       actual_ip_is(nil, '10.0.1.1')
-      manager.read_settings('foo', '10.0.1.1').should == 'bar'
+      expect(manager.read_settings('foo', '10.0.1.1')).to eq('bar')
     end
 
     it 'raises an error if IP cannot be verified' do
@@ -100,16 +102,16 @@ describe Bosh::Registry::InstanceManager do
 
     it 'it should create a new fog connection if there is an Unauthorized error' do
       create_instance(:instance_id => 'foo', :settings => 'bar')
-      compute.should_receive(:servers).and_raise(Excon::Errors::Unauthorized, 'Unauthorized')
+      expect(compute).to receive(:servers).and_raise(Excon::Errors::Unauthorized, 'Unauthorized')
       actual_ip_is('10.0.0.1', nil)
-      manager.read_settings('foo', '10.0.0.1').should == 'bar'
+      expect(manager.read_settings('foo', '10.0.0.1')).to eq('bar')
     end
 
     it 'it should raise a ConnectionError if there is a persistent Unauthorized error' do
       create_instance(:instance_id => 'foo', :settings => 'bar')
-      compute.should_receive(:servers).twice.and_raise(Excon::Errors::Unauthorized, 'Unauthorized')
+      expect(compute).to receive(:servers).twice.and_raise(Excon::Errors::Unauthorized, 'Unauthorized')
       expect {
-        manager.read_settings('foo', '10.0.0.1').should == 'bar'
+        expect(manager.read_settings('foo', '10.0.0.1')).to eq('bar')
       }.to raise_error(Bosh::Registry::ConnectionError, 'Unable to connect to OpenStack API: Unauthorized') 
     end
   end

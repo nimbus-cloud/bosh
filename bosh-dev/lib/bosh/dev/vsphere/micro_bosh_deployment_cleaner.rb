@@ -1,16 +1,16 @@
 require 'bosh/dev/vsphere'
-require 'logger'
 require 'common/retryable'
 require 'cloud/vsphere'
 require 'sequel'
 require 'sequel/adapters/sqlite'
 require 'cloud'
+require 'logging'
 
 module Bosh::Dev::VSphere
   class MicroBoshDeploymentCleaner
     def initialize(manifest)
       @manifest = manifest
-      @logger = Logger.new($stderr)
+      @logger = Logging.logger(STDERR)
     end
 
     def clean
@@ -23,14 +23,14 @@ module Bosh::Dev::VSphere
 
       old_vms.each do |vm|
         begin
-          @logger.info("Powering off #{vm.name}")
-          cloud.client.power_off_vm(vm)
-          cloud.wait_until_off(vm, 15)
+          @logger.info("Powering off #{vm.cid}")
+          vm.power_off
+          vm.wait_until_off(15)
 
-          @logger.info("#{vm.name} powered off, terminating")
-          vm.destroy
-        rescue
-          @logger.info("Destruction of #{vm.inspect} failed, continuing")
+          @logger.info("#{vm.cid} powered off, terminating")
+          vm.delete
+        rescue Exception => e
+          @logger.info("Destruction of #{vm.inspect} failed with #{e.class}: #{e.message}. Manual cleanup may be required. Continuing and hoping for the best...")
         end
       end
     end
@@ -40,7 +40,7 @@ module Bosh::Dev::VSphere
     def configure_cpi
       Bosh::Clouds::Config.configure(OpenStruct.new(
         logger: @logger,
-        uuid: nil,
+        uuid: SecureRandom.uuid,
         task_checkpoint: nil,
         db: Sequel.sqlite,
       ))

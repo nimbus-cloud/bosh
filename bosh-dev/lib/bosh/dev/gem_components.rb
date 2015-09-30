@@ -23,28 +23,24 @@ module Bosh::Dev
     end
 
     def each(&block)
-      %w[
-       agent_client
-       blobstore_client
-       bosh-core
-       bosh-stemcell
-       bosh_agent
-       bosh_aws_cpi
-       bosh_cli
-       bosh_cli_plugin_aws
-       bosh_cli_plugin_micro
-       bosh_common
-       bosh_cpi
-       bosh_openstack_cpi
-       bosh-registry
-       bosh_vsphere_cpi
-       bosh_warden_cpi
-       bosh-director
-       bosh-director-core
-       bosh-monitor
-       bosh-release
-       simple_blobstore_server
-      ].each(&block)
+      %w(
+        agent_client
+        blobstore_client
+        bosh-core
+        bosh-stemcell
+        bosh-template
+        bosh_cli
+        bosh_cli_plugin_aws
+        bosh_cli_plugin_micro
+        bosh_common
+        bosh_cpi
+        bosh-registry
+        bosh-director
+        bosh-director-core
+        bosh-monitor
+        bosh-release
+        simple_blobstore_server
+      ).each(&block)
     end
 
     def components
@@ -58,7 +54,7 @@ module Bosh::Dev
     end
 
     def uses_bundler?(component_name)
-      %w(bosh-director bosh-monitor).include?(component_name)
+      %w(bosh-director bosh-monitor bosh-registry).include?(component_name)
     end
 
     def root

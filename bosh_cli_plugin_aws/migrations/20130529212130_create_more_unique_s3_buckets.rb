@@ -1,4 +1,4 @@
-class CreateMoreUniqueS3Buckets < Bosh::Aws::Migration
+class CreateMoreUniqueS3Buckets < Bosh::AwsCliPlugin::Migration
   def s3_safe_full_domain_name
     config['vpc']['domain'].gsub(".","-")
   end
@@ -19,6 +19,7 @@ class CreateMoreUniqueS3Buckets < Bosh::Aws::Migration
 
     buckets.each_key do |bucket|
       say "creating bucket #{bucket}"
+      next if s3.bucket_exists?(bucket)
       s3.create_bucket(bucket)
     end
 

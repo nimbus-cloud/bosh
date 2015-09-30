@@ -4,7 +4,6 @@ module Bosh::Director
   class InstanceUpdater
     include DnsHelper
 
-    UPDATE_STEPS = 7
     WATCH_INTERVALS = 10
 
     attr_reader :current_state
@@ -42,53 +41,62 @@ module Bosh::Director
       @agent = AgentClient.with_defaults(@vm.agent_id)
     end
 
-    def step
-      yield
-      report_progress
+    def report_progress(num_steps)
+      @event_log_task.advance(100.0 / num_steps)
     end
 
-    def report_progress
-      @event_log_task.advance(100.0 / update_steps())
-    end
-
-    def update_steps
-      @instance.job_changed? || @instance.packages_changed? ? UPDATE_STEPS + 1 : UPDATE_STEPS
-    end
-
-    def update(options = {})
+    def update_steps(options = {})
+      steps = []
       @canary = options.fetch(:canary, false)
-
-      @logger.info("Updating instance #{@instance}, changes: #{@instance.changes.to_a.join(', ')}")
 
       # Optimization to only update DNS if nothing else changed.
       if dns_change_only?
-        update_dns
-        return
+        steps << proc { update_dns }
+        return steps
       end
 
-      step { Preparer.new(@instance, agent).prepare }
-      step { stop }
-      step { take_snapshot }
+      steps << proc { Preparer.new(@instance, agent, @logger).prepare }
+      steps << proc { stop }
+      steps << proc { take_snapshot }
 
       if @target_state == "detached"
-        vm_updater.detach
-        return
+        steps << proc { vm_updater.detach }
+        return steps
       end
 
-      step { update_resource_pool(nil) }
-      step { update_networks }
-      step { update_dns }
-      step { update_persistent_disk }
+      steps << proc { recreate_vm(nil) }
+      steps << proc { update_networks }
+      steps << proc { update_dns }
+      steps << proc { update_persistent_disk }
+      steps << proc { update_settings }
 
-      VmMetadataUpdater.build.update(@vm, {})
+      if !trusted_certs_change_only?
+        steps << proc {
+          VmMetadataUpdater.build.update(@vm, {})
+          apply_state(@instance.spec)
+          RenderedJobTemplatesCleaner.new(@instance.model, @blobstore).clean
+        }
+      end
 
-      step { apply_state(@instance.spec) }
+      if need_start?
+        steps << proc { run_pre_start_scripts }
+        steps << proc { start! }
+      end
 
-      RenderedJobTemplatesCleaner.new(@instance.model, @blobstore).clean
+      steps << proc { wait_until_running }
 
-      start! if need_start?
+      steps
+    end
 
-      step { wait_until_running }
+    def update(options = {})
+      steps = update_steps(options)
+
+      @logger.info("Updating instance #{@instance}, changes: #{@instance.changes.to_a.join(', ')}")
+
+      steps.each do |step|
+        step.call
+        report_progress(steps.length)
+      end
 
       if @target_state == "started" && current_state["job_state"] != "running" && current_state["job_state"] != "alerting"
         raise AgentJobNotRunning, "`#{@instance}' is not running after update"
@@ -120,6 +128,10 @@ module Bosh::Director
       end
     end
 
+    def run_pre_start_scripts
+      @agent.run_script("pre-start", {})
+    end
+
     def start!
       agent.start
     rescue RuntimeError => e
@@ -143,8 +155,13 @@ module Bosh::Director
       @instance.changes.include?(:dns) && @instance.changes.size == 1
     end
 
+    def trusted_certs_change_only?
+      @instance.changes.include?(:trusted_certs) && @instance.changes.size == 1
+    end
+
     def stop
-      stopper = Stopper.new(@instance, agent, @target_state, Config, @logger)
+      skip_drain = @deployment_plan.skip_drain_for_job?(@job.name)
+      stopper = Stopper.new(@instance, agent, @target_state, skip_drain, Config, @logger)
       stopper.stop
     end
 
@@ -174,8 +191,14 @@ module Bosh::Director
       end
     end
 
-    def delete_disk(disk, vm_cid)
+    def delete_unused_disk(disk)
+      @cloud.delete_disk(disk.disk_cid)
+      disk.destroy
+    end
+
+    def delete_mounted_disk(disk)
       disk_cid = disk.disk_cid
+      vm_cid = @vm.cid
 
       # Unmount the disk only if disk is known by the agent
       if agent && disk_info.include?(disk_cid)
@@ -216,9 +239,10 @@ module Bosh::Director
         update_dns_a_record(domain, record_name, ip_address)
         update_dns_ptr_record(record_name, ip_address)
       end
+      flush_dns_cache
     end
 
-    def update_resource_pool(new_disk_cid)
+    def recreate_vm(new_disk_cid)
       @vm, @agent = vm_updater.update(new_disk_cid)
     end
 
@@ -247,51 +271,15 @@ module Bosh::Director
       vm_updater.attach_missing_disk
       check_persistent_disk
 
-      disk_cid = nil
       disk = nil
       return unless @instance.persistent_disk_changed?
 
       old_disk = @instance.model.persistent_disk
 
-      if @job.persistent_disk > 0
-        @instance.model.db.transaction do
-          disk_cid = @cloud.create_disk(@job.persistent_disk, @vm.cid)
-          disk =
-              Models::PersistentDisk.create(:disk_cid => disk_cid,
-                                            :active => false,
-                                            :instance_id => @instance.model.id,
-                                            :size => @job.persistent_disk)
-        end
-
-        begin
-          @cloud.attach_disk(@vm.cid, disk_cid)
-        rescue Bosh::Clouds::NoDiskSpace => e
-          if e.ok_to_retry
-            @logger.warn("Retrying attach disk operation " +
-                             "after persistent disk update failed")
-            # Recreate the vm
-            update_resource_pool(disk_cid)
-            begin
-              @cloud.attach_disk(@vm.cid, disk_cid)
-            rescue
-              @cloud.delete_disk(disk_cid)
-              disk.destroy
-              raise
-            end
-          else
-            @cloud.delete_disk(disk_cid)
-            disk.destroy
-            raise
-          end
-        end
-
-        begin
-          agent.mount_disk(disk_cid)
-          agent.migrate_disk(old_disk.disk_cid, disk_cid) if old_disk
-        rescue
-          delete_disk(disk, @vm.cid)
-          raise
-        end
+      if @job.persistent_disk_pool && @job.persistent_disk_pool.disk_size > 0
+        disk = create_disk
+        attach_disk(disk)
+        mount_and_migrate_disk(disk, old_disk)
       end
 
       @instance.model.db.transaction do
@@ -299,12 +287,19 @@ module Bosh::Director
         disk.update(:active => true) if disk
       end
 
-      delete_disk(old_disk, @vm.cid) if old_disk
+      delete_mounted_disk(old_disk) if old_disk
     end
 
     def update_networks
       network_updater = NetworkUpdater.new(@instance, @vm, agent, vm_updater, @cloud, @logger)
       @vm, @agent = network_updater.update
+    end
+
+    def update_settings
+      if @instance.trusted_certs_changed?
+        @agent.update_settings(Config.trusted_certs)
+        @vm.update(:trusted_certs_sha1 => Digest::SHA1.hexdigest(Config.trusted_certs))
+      end
     end
 
     # Returns an array of wait times distributed
@@ -343,6 +338,52 @@ module Bosh::Director
       # Do not memoize to avoid caching same VM and agent
       # which could be replaced after updating a VM
       VmUpdater.new(@instance, @vm, agent, @job_renderer, @cloud, 3, @logger)
+    end
+
+    private
+
+    def create_disk
+      disk_size = @job.persistent_disk_pool.disk_size
+      cloud_properties = @job.persistent_disk_pool.cloud_properties
+
+      disk = nil
+      @instance.model.db.transaction do
+        disk_cid = @cloud.create_disk(disk_size, cloud_properties, @vm.cid)
+        disk = Models::PersistentDisk.create(
+          disk_cid: disk_cid,
+          active: false,
+          instance_id: @instance.model.id,
+          size: disk_size,
+          cloud_properties: cloud_properties,
+        )
+      end
+      disk
+    end
+
+    def attach_disk(disk)
+      @cloud.attach_disk(@vm.cid, disk.disk_cid)
+    rescue Bosh::Clouds::NoDiskSpace => e
+      if e.ok_to_retry
+        @logger.warn('Retrying attach disk operation after persistent disk update failed')
+        recreate_vm(disk.disk_cid)
+        begin
+          @cloud.attach_disk(@vm.cid, disk.disk_cid)
+        rescue
+          delete_unused_disk(disk)
+          raise
+        end
+      else
+        delete_unused_disk(disk)
+        raise
+      end
+    end
+
+    def mount_and_migrate_disk(new_disk, old_disk)
+      agent.mount_disk(new_disk.disk_cid)
+      agent.migrate_disk(old_disk.disk_cid, new_disk.disk_cid) if old_disk
+    rescue
+      delete_mounted_disk(new_disk)
+      raise
     end
   end
 end

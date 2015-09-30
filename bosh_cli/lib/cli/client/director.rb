@@ -1,6 +1,6 @@
-# Copyright (c) 2009-2012 VMware, Inc.
 require 'cli/core_ext'
 require 'cli/errors'
+require 'cli/cloud_config'
 
 require 'json'
 require 'httpclient'
@@ -12,23 +12,17 @@ module Bosh
     module Client
       class Director
 
-        DIRECTOR_HTTP_ERROR_CODES = [400, 403, 404, 500]
+        DIRECTOR_HTTP_ERROR_CODES = [400, 401, 403, 404, 500]
 
         API_TIMEOUT     = 86400 * 3
         CONNECT_TIMEOUT = 30
 
         attr_reader :director_uri
 
-        # @return [String]
-        attr_accessor :user
-
-        # @return [String]
-        attr_accessor :password
-
         # Options can include:
         # * :no_track => true - do not use +TaskTracker+ for long-running
         #                       +request_and_track+ calls
-        def initialize(director_uri, user = nil, password = nil, options = {})
+        def initialize(director_uri, credentials = nil, options = {})
           if director_uri.nil? || director_uri =~ /^\s*$/
             raise DirectorMissing, 'no director URI given'
           end
@@ -37,11 +31,11 @@ module Bosh
           @director_ip         = Resolv.getaddresses(@director_uri.host).last
           @scheme              = @director_uri.scheme
           @port                = @director_uri.port
-          @user                = user
-          @password            = password
+          @credentials         = credentials
           @track_tasks         = !options.delete(:no_track)
           @num_retries         = options.fetch(:num_retries, 5)
           @retry_wait_interval = options.fetch(:retry_wait_interval, 5)
+          @ca_cert             = options[:ca_cert]
         end
 
         def uuid
@@ -64,7 +58,14 @@ module Bosh
           end
         end
 
+        def login(username, password)
+          @credentials = BasicCredentials.new(username, password)
+          authenticated?
+        end
+
         def authenticated?
+          # getting status verifies credentials
+          # if credentials are wrong it will raise DirectorError
           status = get_status
           # Backward compatibility: older directors return 200
           # only for logged in users
@@ -121,14 +122,12 @@ module Bosh
           get_json('/deployments')
         end
 
-        def list_running_tasks(verbose = 1)
+        def list_errands(deployment_name)
+          get_json("/deployments/#{deployment_name}/errands")
+        end
 
-          if Bosh::Common::Version::BoshVersion.parse(get_version) < Bosh::Common::Version::BoshVersion.parse('0.3.5')
-            get_json('/tasks?state=processing')
-          else
-            get_json('/tasks?state=processing,cancelling,queued' +
-                       "&verbose=#{verbose}")
-          end
+        def list_running_tasks(verbose = 1)
+          get_json("/tasks?state=processing,cancelling,queued&verbose=#{verbose}")
         end
 
         def list_recent_tasks(count = 30, verbose = 1)
@@ -139,8 +138,28 @@ module Bosh
           get_json("/releases/#{name}")
         end
 
+        def inspect_release(name, version)
+          url = "/releases/#{name}"
+
+          extras = []
+          extras << ['version', version]
+
+          get_json(add_query_string(url, extras))
+        end
+
         def match_packages(manifest_yaml)
           url          = '/packages/matches'
+          status, body = post(url, 'text/yaml', manifest_yaml)
+
+          if status == 200
+            JSON.parse(body)
+          else
+            err(parse_error_message(status, body))
+          end
+        end
+
+        def match_compiled_packages(manifest_yaml)
+          url          = '/packages/matches_compiled'
           status, body = post(url, 'text/yaml', manifest_yaml)
 
           if status == 200
@@ -164,13 +183,7 @@ module Bosh
           options                = options.dup
           options[:content_type] = 'application/x-compressed'
 
-          upload_and_track(:post, '/releases', filename, options)
-        end
-
-        def rebase_release(filename, options = {})
-          options                = options.dup
-          options[:content_type] = 'application/x-compressed'
-          upload_and_track(:post, '/releases?rebase=true', filename, options)
+          upload_and_track(:post, releases_path(options), filename, options)
         end
 
         def upload_remote_release(release_location, options = {})
@@ -179,16 +192,7 @@ module Bosh
           options[:payload]      = JSON.generate(payload)
           options[:content_type] = 'application/json'
 
-          request_and_track(:post, '/releases', options)
-        end
-
-        def rebase_remote_release(release_location, options = {})
-          options                = options.dup
-          payload                = { 'location' => release_location }
-          options[:payload]      = JSON.generate(payload)
-          options[:content_type] = 'application/json'
-
-          request_and_track(:post, '/releases?rebase=true', options)
+          request_and_track(:post, releases_path(options), options)
         end
 
         def delete_stemcell(name, version, options = {})
@@ -233,13 +237,15 @@ module Bosh
           options = options.dup
 
           recreate               = options.delete(:recreate)
+          skip_drain             = options.delete(:skip_drain)
           options[:content_type] = 'text/yaml'
           options[:payload]      = manifest_yaml
 
           url = '/deployments'
 
           extras = []
-          extras << ['recreate', 'true'] if recreate
+          extras << ['recreate', 'true']   if recreate
+          extras << ['skip_drain', skip_drain] if skip_drain
 
           request_and_track(:post, add_query_string(url, extras), options)
         end
@@ -287,6 +293,7 @@ module Bosh
 
           options[:payload]      = JSON.generate(payload)
           options[:content_type] = 'application/json'
+          options[:task_success_state] = :queued
 
           request_and_track(:post, url, options)
         end
@@ -295,9 +302,12 @@ module Bosh
           job_name, index, new_state, options = {})
           options = options.dup
 
+          skip_drain = !!options.delete(:skip_drain)
+
           url = "/deployments/#{deployment_name}/jobs/#{job_name}"
           url += "/#{index}" if index
           url += "?state=#{new_state}"
+          url += "&skip_drain=true" if skip_drain
 
           options[:payload]      = manifest_yaml
           options[:content_type] = 'text/yaml'
@@ -546,11 +556,6 @@ module Bosh
           get_json('/locks')
         end
 
-        [:post, :put, :get, :delete].each do |method_name|
-          define_method method_name do |*args|
-            request(method_name, *args)
-          end
-        end
 
         # Perform director HTTP request and track director task (if request
         # started one).
@@ -595,15 +600,55 @@ module Bosh
           file.stop_progress_bar if file
         end
 
+        def get_cloud_config
+          _, cloud_configs = get_json_with_status('/cloud_configs?limit=1')
+          latest = cloud_configs.first
+
+          if !latest.nil?
+            Bosh::Cli::CloudConfig.new(
+              properties: latest["properties"],
+              created_at: latest["created_at"])
+          end
+        end
+
+        def update_cloud_config(cloud_config_yaml)
+          status, _ = post('/cloud_configs', 'text/yaml', cloud_config_yaml)
+          status == 201
+        end
+
+        def post(uri, content_type = nil, payload = nil, headers = {}, options = {})
+          request(:post, uri, content_type, payload, headers, options)
+        end
+
+        def put(uri, content_type = nil, payload = nil, headers = {}, options = {})
+          request(:put, uri, content_type, payload, headers, options)
+        end
+
+        def get(uri, content_type = nil, payload = nil, headers = {}, options = {})
+          request(:get, uri, content_type, payload, headers, options)
+        end
+
+        def delete(uri, content_type = nil, payload = nil, headers = {}, options = {})
+          request(:delete, uri, content_type, payload, headers, options)
+        end
+
         private
 
         def director_name
           @director_name ||= get_status['name']
         end
 
+        def releases_path(options = {})
+          path = '/releases'
+          params = [:rebase, :skip_if_exists].select { |p| options[p] }.map { |p| "#{p}=true" }
+          path << "?#{params.join('&')}" unless params.empty?
+          path
+        end
+
         def request(method, uri, content_type = nil, payload = nil, headers = {}, options = {})
           headers = headers.dup
           headers['Content-Type'] = content_type if content_type
+          headers['Host'] = @director_uri.host
 
           tmp_file = nil
           response_reader = nil
@@ -685,14 +730,37 @@ module Bosh
           http_client.receive_timeout = API_TIMEOUT
           http_client.connect_timeout = CONNECT_TIMEOUT
 
-          http_client.ssl_config.verify_mode     = OpenSSL::SSL::VERIFY_NONE
-          http_client.ssl_config.verify_callback = Proc.new {}
+          if @ca_cert.nil?
+            http_client.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
+            http_client.ssl_config.verify_callback = Proc.new {}
+          else
+            unless File.exists?(@ca_cert)
+              err('Invalid ca certificate path')
+            end
 
-          # HTTPClient#set_auth doesn't seem to work properly,
-          # injecting header manually instead.
-          if @user && @password
-            headers['Authorization'] = 'Basic ' +
-              Base64.encode64("#{@user}:#{@password}").strip
+            parsed_url = nil
+            begin
+              parsed_url = URI.parse(uri)
+            rescue => e
+              err("Failed to parse director URL: #{e.message}")
+            end
+
+            unless parsed_url.instance_of?(URI::HTTPS)
+              err('CA certificate cannot be used with HTTP protocol')
+            end
+
+            # pass in client certificate
+            begin
+              cert_store = OpenSSL::X509::Store.new
+              cert_store.add_file(@ca_cert)
+            rescue OpenSSL::X509::StoreError
+              err('Invalid SSL Cert')
+            end
+            http_client.ssl_config.cert_store = cert_store
+          end
+
+          if @credentials
+            headers['Authorization'] = @credentials.authorization_header
           end
 
           http_client.request(method, uri, {
@@ -700,7 +768,20 @@ module Bosh
             :header => headers,
           }, &block)
 
-        rescue URI::Error, SocketError, Errno::ECONNREFUSED, Timeout::Error, HTTPClient::TimeoutError, HTTPClient::KeepAliveDisconnected => e
+        rescue URI::Error,
+               SocketError,
+               Errno::ECONNREFUSED,
+               Errno::ETIMEDOUT,
+               Errno::ECONNRESET,
+               Timeout::Error,
+               HTTPClient::TimeoutError,
+               HTTPClient::KeepAliveDisconnected,
+               OpenSSL::SSL::SSLError,
+               OpenSSL::X509::StoreError => e
+
+          if e.is_a?(OpenSSL::SSL::SSLError) && e.message.include?('certificate verify failed')
+            err('Invalid SSL Cert')
+          end
           raise DirectorInaccessible, "cannot access director (#{e.message})"
 
         rescue HTTPClient::BadResponseError => e
@@ -708,7 +789,7 @@ module Bosh
 
         # HTTPClient doesn't have a root exception but instead subclasses RuntimeError
         rescue RuntimeError => e
-          puts "Perform request #{method}, #{uri}, #{headers.inspect}, #{payload.inspect}"
+          say("Perform request #{method}, #{uri}, #{headers.inspect}, #{payload.inspect}")
           err("REST API call exception: #{e}")
         end
 

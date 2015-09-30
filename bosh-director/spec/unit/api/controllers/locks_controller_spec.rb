@@ -6,12 +6,10 @@ module Bosh::Director
   describe Api::Controllers::LocksController do
     include Rack::Test::Methods
 
-    subject(:app) { described_class } # "app" is a Rack::Test hook
-
-    before { Api::ResourceManager.stub(:new) }
-
+    subject(:app) { described_class.new(config) }
+    let(:config) { Config.load_hash(Psych.load(spec_asset('test-director-config.yml'))) }
     let(:redis) { double('Redis') }
-
+    before { allow(Api::ResourceManager).to receive(:new) }
     before { allow(BD::Config).to receive(:redis).and_return(redis) }
 
     context 'authenticated access' do
@@ -23,7 +21,7 @@ module Bosh::Director
         let(:locks) { [] }
 
         it 'should list the current locks' do
-          get '/locks'
+          get '/'
           expect(last_response.status).to eq(200)
 
           body = Yajl::Parser.parse(last_response.body)
@@ -50,7 +48,7 @@ module Bosh::Director
         end
 
         it 'should list the current locks' do
-          get '/locks'
+          get '/'
           expect(last_response.status).to eq(200)
 
           body = Yajl::Parser.parse(last_response.body)
@@ -68,15 +66,26 @@ module Bosh::Director
       before { authorize 'invalid-user', 'invalid-password' }
 
       it 'returns 401' do
-        get '/locks'
+        get '/'
         expect(last_response.status).to eq(401)
       end
     end
 
     context 'unauthenticated access' do
       it 'returns 401' do
-        get '/locks'
+        get '/'
         expect(last_response.status).to eq(401)
+      end
+    end
+
+    describe 'scope' do
+      let(:identity_provider) { Support::TestIdentityProvider.new }
+      before { allow(config).to receive(:identity_provider).and_return(identity_provider) }
+
+      it 'accepts read scope for routes allowing read access' do
+        authorize 'admin', 'admin'
+        get '/'
+        expect(identity_provider.scope).to eq(:read)
       end
     end
   end

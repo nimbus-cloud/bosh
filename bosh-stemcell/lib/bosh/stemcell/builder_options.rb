@@ -1,8 +1,6 @@
 require 'rbconfig'
-require 'bosh_agent/version'
-require 'bosh/stemcell/archive_filename'
-
 require 'forwardable'
+require 'bosh/stemcell/archive_filename'
 
 module Bosh::Stemcell
   class BuilderOptions
@@ -20,23 +18,25 @@ module Bosh::Stemcell
 
     def default
       {
-        'stemcell_name' => "bosh-#{@definition.stemcell_name}",
-        'stemcell_tgz' => archive_filename.to_s,
         'stemcell_image_name' => stemcell_image_name,
         'stemcell_version' => stemcell_version,
         'stemcell_hypervisor' => infrastructure.hypervisor,
         'stemcell_infrastructure' => infrastructure.name,
         'stemcell_operating_system' => operating_system.name,
         'stemcell_operating_system_version' => operating_system.version,
-        'bosh_protocol_version' => Bosh::Agent::BOSH_PROTOCOL,
         'ruby_bin' => ruby_bin,
         'bosh_release_src_dir' => File.join(source_root, 'release/src/bosh'),
-        'bosh_agent_src_dir' => File.join(source_root, 'bosh_agent'),
-        'go_agent_src_dir' => File.join(source_root, 'go_agent'),
+        'agent_src_dir' => File.join(source_root, 'go/src/github.com/cloudfoundry/bosh-agent'),
+        'davcli_src_dir' => File.join(source_root, 'go/src/github.com/cloudfoundry/bosh-davcli'),
         'image_create_disk_size' => image_create_disk_size,
         'os_image_tgz' => os_image_tgz_path,
       }.merge(bosh_micro_options).merge(environment_variables).merge(ovf_options)
     end
+
+    attr_reader(
+      :stemcell_version,
+      :image_create_disk_size,
+    )
 
     private
 
@@ -49,9 +49,7 @@ module Bosh::Stemcell
 
     attr_reader(
       :environment,
-      :stemcell_version,
       :definition,
-      :image_create_disk_size,
       :bosh_micro_release_tgz_path,
       :os_image_tgz_path,
     )
@@ -68,6 +66,8 @@ module Bosh::Stemcell
       {
         'UBUNTU_ISO' => environment['UBUNTU_ISO'],
         'UBUNTU_MIRROR' => environment['UBUNTU_MIRROR'],
+        'RHN_USERNAME' => environment['RHN_USERNAME'],
+        'RHN_PASSWORD' => environment['RHN_PASSWORD'],
       }
     end
 
@@ -78,10 +78,6 @@ module Bosh::Stemcell
         'bosh_micro_manifest_yml_path' => File.join(source_root, 'release', 'micro', "#{infrastructure.name}.yml"),
         'bosh_micro_release_tgz_path' => bosh_micro_release_tgz_path,
       }
-    end
-
-    def archive_filename
-      ArchiveFilename.new(stemcell_version, definition, 'bosh-stemcell', false)
     end
 
     def stemcell_image_name

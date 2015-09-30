@@ -4,19 +4,21 @@ require File.expand_path('../../../spec/shared_spec_helper', __FILE__)
 
 require 'digest/sha1'
 require 'fileutils'
-require 'logger'
+require 'logging'
 require 'pg'
 require 'tempfile'
 require 'tmpdir'
 require 'zlib'
 
 require 'archive/tar/minitar'
-require 'rspec'
-require 'rspec/its'
 require 'machinist/sequel'
 require 'sham'
+require 'support/buffered_logger'
 
 Dir[File.expand_path('../support/**/*.rb', __FILE__)].each { |f| require(f) }
+
+DIRECTOR_TEST_CERTS="these\nare\nthe\ncerts"
+DIRECTOR_TEST_CERTS_SHA1=Digest::SHA1.hexdigest DIRECTOR_TEST_CERTS
 
 RSpec.configure do |config|
   config.include Bosh::Director::Test::TaskHelpers
@@ -24,34 +26,36 @@ end
 
 module SpecHelper
   class << self
-    attr_accessor :logger
+    include BufferedLogger
+
     attr_accessor :temp_dir
 
     def init
       ENV["RACK_ENV"] = "test"
-      configure_logging
+      configure_init_logger
       configure_temp_dir
 
       require "bosh/director"
-      @logger.formatter = ThreadFormatter.new
 
       init_database
 
       require "blueprints"
     end
 
-    def configure_logging
-      if ENV["DEBUG"]
-        @logger = Logger.new(STDOUT)
-      else
-        path = File.expand_path("/tmp/spec.log", __FILE__)
-        log_file = File.open(path, "w")
-        
-        # Unbuffered logging to file is not thread-safe
-        # log_file.sync = true
-        
-        @logger = Logger.new(log_file)
-      end
+    # init_logger is only used before the tests start.
+    # Inside each test BufferedLogger will be used.
+    def configure_init_logger
+      file_path = File.expand_path('/tmp/spec.log', __FILE__)
+
+      @init_logger = Logging::Logger.new('TestLogger')
+      @init_logger.add_appenders(
+        Logging.appenders.file(
+          'TestLogFile',
+          filename: file_path,
+          layout: ThreadFormatter.layout
+        )
+      )
+      @init_logger.level = :debug
     end
 
     def configure_temp_dir
@@ -77,9 +81,6 @@ module SpecHelper
 
       @dns_migrations = File.expand_path("../../db/migrations/dns", __FILE__)
       @director_migrations = File.expand_path("../../db/migrations/director", __FILE__)
-      vsphere_cpi_path = $LOAD_PATH.find { |p| File.exist?(File.join(p, File.join("cloud", "vsphere"))) }
-      @vsphere_cpi_migrations = File.expand_path("../db/migrations", vsphere_cpi_path)
-
       Sequel.extension :migration
 
       connect_database(@temp_dir)
@@ -94,11 +95,11 @@ module SpecHelper
       db_opts = {:max_connections => 32, :pool_timeout => 10}
 
       @db = Sequel.connect(db, db_opts)
-      @db.loggers << @logger
+      @db.loggers << (logger || @init_logger)
       Bosh::Director::Config.db = @db
 
       @dns_db = Sequel.connect(dns_db, db_opts)
-      @dns_db.loggers << @logger
+      @dns_db.loggers << (logger || @init_logger)
       Bosh::Director::Config.dns_db = @dns_db
     end
 
@@ -117,7 +118,6 @@ module SpecHelper
     def run_migrations
       Sequel::Migrator.apply(@dns_db, @dns_migrations, nil)
       Sequel::Migrator.apply(@db, @director_migrations, nil)
-      Sequel::TimestampMigrator.new(@db, @vsphere_cpi_migrations, :table => "vsphere_cpi_schema").run
     end
 
     def reset_database
@@ -143,13 +143,14 @@ module SpecHelper
       end
     end
 
-    def reset
+    def reset(logger)
       reset_database
 
       Bosh::Director::Config.clear
       Bosh::Director::Config.db = @db
       Bosh::Director::Config.dns_db = @dns_db
-      Bosh::Director::Config.logger = @logger
+      Bosh::Director::Config.logger = logger
+      Bosh::Director::Config.trusted_certs = ''
     end
   end
 end
@@ -181,7 +182,7 @@ RSpec.configure do |rspec|
       end
     end
 
-    SpecHelper.reset
+    SpecHelper.reset(logger)
     @event_buffer = StringIO.new
     @event_log = Bosh::Director::EventLog::Log.new(@event_buffer)
     Bosh::Director::Config.event_log = @event_log
@@ -198,16 +199,95 @@ def gzip(string)
 end
 
 def check_event_log
-  pos = @event_buffer.tell
-  @event_buffer.rewind
-
-  events = @event_buffer.read.split("\n").map do |line|
+  events = @event_buffer.string.split("\n").map do |line|
     JSON.parse(line)
   end
 
   yield events
-ensure
-  @event_buffer.seek(pos)
 end
 
+def strip_heredoc(str)
+  indent = str.scan(/^[ \t]*(?=\S)/).min.size || 0
+  str.gsub(/^[ \t]{#{indent}}/, '')
+end
 
+module ManifestHelper
+  class << self
+    def default_deployment_manifest(overrides = {})
+      {
+        'name' => 'deployment-name',
+        'releases' => [release],
+        'update' => {
+          'max_in_flight' => 10,
+          'canaries' => 2,
+          'canary_watch_time' => 1000,
+          'update_watch_time' => 1000,
+        },
+      }.merge(overrides)
+    end
+
+    def default_legacy_manifest(overrides = {})
+      (default_deployment_manifest.merge(default_iaas_manifest)).merge(overrides)
+    end
+
+    def default_iaas_manifest(overrides = {})
+      {
+      'networks' => [ManifestHelper::network],
+      'resource_pools' => [ManifestHelper::resource_pool],
+      'compilation' => {
+        'workers' => 1,
+        'network'=>'network-name',
+        'cloud_properties' => {},
+        },
+      }.merge(overrides)
+    end
+
+    def default_manifest_with_jobs(overrides = {})
+      {
+        'name' => 'deployment-name',
+        'releases' => [release],
+        'jobs' => [job],
+        'update' => {
+            'max_in_flight' => 10,
+            'canaries' => 2,
+            'canary_watch_time' => 1000,
+            'update_watch_time' => 1000,
+        },
+      }.merge(overrides)
+    end
+
+    def release(overrides = {})
+      {
+        'name' => 'release-name',
+        'version' => 'latest',
+      }.merge(overrides)
+    end
+
+    def network(overrides = {})
+      { 'name' => 'network-name', 'subnets' => [] }.merge(overrides)
+    end
+
+    def disk_pool(name='dp-name')
+      {'name' => name, 'disk_size' => 10000}.merge(overrides)
+    end
+
+    def job(overrides = {})
+      {
+        'name' => 'job-name',
+        'resource_pool' => 'rp-name',
+        'instances' => 1,
+        'networks' => [{'name' => 'network-name'}],
+        'templates' => [{'name' => 'template-name', 'release' => 'release-name'}]
+      }.merge(overrides)
+    end
+
+    def resource_pool(overrides = {})
+      {
+        'name' => 'rp-name',
+        'network'=>'network-name',
+        'stemcell'=> {'name' => 'default','version'=>'1'},
+        'cloud_properties'=>{}
+      }.merge(overrides)
+    end
+  end
+end

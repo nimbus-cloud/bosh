@@ -1,61 +1,64 @@
 require 'bosh/stemcell/definition'
 require 'bosh/stemcell/archive_filename'
+require 'bosh/dev/stemcell_artifact'
 
 module Bosh::Dev
   class StemcellArtifacts
-    def self.all(version)
-      definitions = [
-        Bosh::Stemcell::Definition.for('vsphere', 'ubuntu', 'lucid', 'go'),
-        Bosh::Stemcell::Definition.for('vsphere', 'ubuntu', 'trusty', 'go'),
-        Bosh::Stemcell::Definition.for('vsphere', 'centos', nil, 'go'),
+    STEMCELL_DEFINITIONS = {
+      'vsphere-esxi-ubuntu-trusty' => ['vsphere', 'esxi', 'ubuntu', 'trusty', 'go', false],
+      'vsphere-esxi-centos' => ['vsphere', 'esxi', 'centos', '7', 'go', false],
 
-        Bosh::Stemcell::Definition.for('aws', 'ubuntu', 'lucid', 'ruby'),
-        Bosh::Stemcell::Definition.for('aws', 'ubuntu', 'lucid', 'go'),
-        Bosh::Stemcell::Definition.for('aws', 'ubuntu', 'trusty', 'go'),
-        Bosh::Stemcell::Definition.for('aws', 'centos', nil, 'ruby'),
-        Bosh::Stemcell::Definition.for('aws', 'centos', nil, 'go'),
+      'vcloud-esxi-ubuntu-trusty' => ['vcloud', 'esxi', 'ubuntu', 'trusty', 'go', false],
 
-        # Go agent is not ready yet for openstack
-        Bosh::Stemcell::Definition.for('openstack', 'ubuntu', 'lucid', 'go'),
-        Bosh::Stemcell::Definition.for('openstack', 'centos', nil, 'go'),
-      ]
+      'light-aws-xen-ubuntu-trusty' => ['aws', 'xen', 'ubuntu', 'trusty', 'go', true],
+      'aws-xen-ubuntu-trusty' => ['aws', 'xen', 'ubuntu', 'trusty', 'go', false],
 
-      new(version, definitions)
+      'light-aws-xen-centos' => ['aws', 'xen', 'centos', '7', 'go', true],
+      'aws-xen-centos' => ['aws', 'xen', 'centos', '7', 'go', false],
+
+      'light-aws-xen-hvm-ubuntu-trusty' => ['aws', 'xen-hvm', 'ubuntu', 'trusty', 'go', true],
+      'light-aws-xen-hvm-centos' => ['aws', 'xen-hvm', 'centos', '7', 'go', true],
+
+      'openstack-kvm-ubuntu-trusty' => ['openstack', 'kvm', 'ubuntu', 'trusty', 'go', false],
+      'openstack-kvm-centos' => ['openstack', 'kvm', 'centos', '7', 'go', false],
+    }
+
+    class << self
+      def all(version, logger)
+        definitions = []
+        STEMCELL_DEFINITIONS.each do |key, definition_args|
+          if promote_stemcell?(key)
+            definitions << Bosh::Stemcell::Definition.for(*definition_args)
+          end
+        end
+
+        new(version, definitions, logger)
+      end
+
+      private
+
+      def promote_stemcell?(key)
+        return true unless ENV['BOSH_PROMOTE_STEMCELLS']
+        stemcells = ENV['BOSH_PROMOTE_STEMCELLS'].split(',')
+        stemcells.include?(key)
+      end
     end
 
-    def initialize(version, matrix)
+    def initialize(version, matrix, logger)
       @version = version
       @matrix = matrix
+      @logger = logger
     end
 
     def list
-      artifact_names = []
-
-      matrix.each do |definition|
-        versions.each do |version|
-          filename = Bosh::Stemcell::ArchiveFilename.new(version, definition, 'bosh-stemcell', false)
-          artifact_names << archive_path(filename.to_s, definition.infrastructure)
-
-          if definition.infrastructure.light?
-            light_filename = Bosh::Stemcell::ArchiveFilename.new(version, definition, 'bosh-stemcell', true)
-            artifact_names << archive_path(light_filename.to_s, definition.infrastructure)
-          end
+      @matrix.flat_map do |stemcell_definition|
+        stemcell_definition.disk_formats.flat_map do |disk_format|
+          [
+            StemcellArtifact.new(@version, @version, stemcell_definition, @logger, disk_format),
+            StemcellArtifact.new(@version, 'latest', stemcell_definition, @logger, disk_format)
+          ]
         end
       end
-
-      artifact_names
-    end
-
-    private
-
-    attr_reader :version, :matrix
-
-    def versions
-      [version, 'latest']
-    end
-
-    def archive_path(filename, infrastructure)
-      File.join('bosh-stemcell', infrastructure.name, filename)
     end
   end
 end

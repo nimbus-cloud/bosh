@@ -1,13 +1,12 @@
 module Bosh::Director::Api
   class TaskRemover
-    def initialize(max_tasks, logger)
+    def initialize(max_tasks)
       @max_tasks = max_tasks
-      #@logger = logger
     end
 
     def remove
       removal_candidates_dataset.each do |task|
-        FileUtils.rm_rf(task.output)
+        FileUtils.rm_rf(task.output) if task.output
         task.destroy
       end
     end

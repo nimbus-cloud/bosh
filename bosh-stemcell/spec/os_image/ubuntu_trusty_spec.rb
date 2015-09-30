@@ -1,7 +1,10 @@
 require 'spec_helper'
 
 describe 'Ubuntu 14.04 OS image', os_image: true do
-  it_behaves_like 'an OS image'
+  it_behaves_like 'every OS image'
+  it_behaves_like 'an upstart-based OS image'
+  it_behaves_like 'a Linux kernel 3.x based OS image'
+  it_behaves_like 'a Linux kernel module configured OS image'
 
   describe package('apt') do
     it { should be_installed }
@@ -9,6 +12,12 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
 
   describe package('rpm') do
     it { should_not be_installed }
+  end
+
+  context 'installed by system_kernel' do
+    describe package('linux-generic-lts-vivid') do
+      it { should be_installed }
+    end
   end
 
   context 'installed by base_debootstrap' do
@@ -86,51 +95,57 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
 
   context 'installed by base_ubuntu_packages' do
     %w(
-      libssl-dev
-      lsof
-      strace
+      anacron
+      apparmor-utils
       bind9-host
-      dnsutils
-      tcpdump
-      iputils-arping
+      bison
+      cloud-guest-utils
+      cmake
       curl
-      wget
+      debhelper
+      dnsutils
+      flex
+      gdb
+      htop
+      iptables
+      iputils-arping
+      libaio1
+      libbz2-dev
+      libcap-dev
+      libcap2-bin
       libcurl3
       libcurl4-openssl-dev
-      bison
+      libgcrypt11-dev
+      libncurses5-dev
       libreadline6-dev
+      libssl-dev
       libxml2
       libxml2-dev
-      libxslt1.1
       libxslt1-dev
-      zip
-      unzip
-      nfs-common
-      flex
-      psmisc
-      apparmor-utils
-      iptables
-      sysstat
-      rsync
-      openssh-server
-      traceroute
-      libncurses5-dev
-      quota
-      libaio1
-      gdb
-      libcap2-bin
-      libcap-dev
-      libbz2-dev
-      cmake
-      scsitools
+      libxslt1.1
+      lsof
       mg
-      htop
       module-assistant
-      debhelper
+      nfs-common
+      openssh-server
+      psmisc
+      quota
+      rsync
+      rsyslog
+      rsyslog-gnutls
+      rsyslog-mmjsonparse
+      rsyslog-relp
       runit
+      scsitools
+      strace
       sudo
+      sysstat
+      tcpdump
+      traceroute
+      unzip
       uuid-dev
-      libgcrypt11-dev
+      wget
+      zip
     ).each do |pkg|
       describe package(pkg) do
         it { should be_installed }
@@ -140,6 +155,35 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
     describe file('/sbin/rescan-scsi-bus') do
       it { should be_file }
       it { should be_executable }
+    end
+  end
+
+  context 'installed by base_ssh' do
+    subject(:sshd_config) { file('/etc/ssh/sshd_config') }
+
+    it 'only allow 3DES and AES series ciphers (stig: V-38617)' do
+      ciphers = %w(
+        aes256-gcm@openssh.com
+        aes128-gcm@openssh.com
+        aes256-ctr
+        aes192-ctr
+        aes128-ctr
+      ).join(',')
+      expect(sshd_config).to contain(/^Ciphers #{ciphers}$/)
+    end
+
+    it 'allows only secure HMACs and the weaker SHA1 HMAC required by golang ssh lib' do
+      macs = %w(
+        hmac-sha2-512-etm@openssh.com
+        hmac-sha2-256-etm@openssh.com
+        hmac-ripemd160-etm@openssh.com
+        umac-128-etm@openssh.com
+        hmac-sha2-512
+        hmac-sha2-256
+        hmac-ripemd160
+        hmac-sha1
+      ).join(',')
+      expect(sshd_config).to contain(/^MACs #{macs}$/)
     end
   end
 
@@ -159,19 +203,6 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
     end
   end
 
-  context 'installed by system_kernel' do
-    %w(
-      linux-headers-3.13.0-32
-      linux-headers-3.13.0-32-generic
-      linux-image-3.13.0-32-generic
-      linux-image-extra-3.13.0-32-generic
-    ).each do |pkg|
-      describe package(pkg) do
-        it { should be_installed }
-      end
-    end
-  end
-
   context 'installed by bosh_user' do
     describe file('/etc/passwd') do
       it { should be_file }
@@ -185,13 +216,47 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
     end
   end
 
-  context 'installed by bosh_sysctl' do
-    describe file('/etc/sysctl.d/60-bosh-sysctl.conf') do
-      it { should be_file }
+  context 'symlinked by vim_tiny' do
+    describe file('/usr/bin/vim') do
+      it { should be_linked_to '/usr/bin/vim.tiny' }
+    end
+  end
+
+  context 'configured by cron_config' do
+    describe file '/etc/cron.daily/man-db' do
+      it { should_not be_file }
     end
 
-    describe file('/etc/sysctl.d/60-bosh-sysctl-neigh-fix.conf') do
+    describe file '/etc/cron.weekly/man-db' do
+      it { should_not be_file }
+    end
+
+    describe file '/etc/apt/apt.conf.d/02periodic' do
+      it { should contain <<EOF }
+APT::Periodic {
+  Enable "0";
+}
+EOF
+    end
+  end
+
+  context 'overriding control alt delete (stig: V-38668)' do
+    describe file('/etc/init/control-alt-delete.override') do
       it { should be_file }
+      it { should contain 'exec /usr/bin/logger -p security.info "Control-Alt-Delete pressed"' }
+    end
+  end
+
+  context 'package signature verification (stig: V-38462)' do
+    # verify default behavior was not changed
+    describe command('grep -R AllowUnauthenticated /etc/apt/apt.conf.d/') do
+      its (:stdout) { should eq('') }
+    end
+  end
+
+  context 'official Ubuntu gpg key is installed (stig: V-38476)' do
+    describe command('apt-key list') do
+      its (:stdout) { should include('Ubuntu Archive Automatic Signing Key') }
     end
   end
 end

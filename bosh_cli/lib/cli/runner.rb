@@ -24,15 +24,15 @@ module Bosh::Cli
       banner = "Usage: bosh [<options>] <command> [<args>]"
       @option_parser = OptionParser.new(banner)
 
-      Config.colorize = true
+      Config.colorize = nil
       Config.output ||= STDOUT
+
+      parse_global_options
     end
 
     # Find and run CLI command
     # @return [void]
     def run
-      parse_global_options
-
       Config.interactive = !@options[:non_interactive]
       Config.poll_interval = @options[:poll_interval]
 
@@ -112,6 +112,10 @@ module Bosh::Cli
                     "line option, then environment variable, then home directory."
       opts.on("-c", "--config FILE", config_desc) do |file|
         @options[:config] = file
+      end
+
+      opts.on("--parallel MAX", "Sets the max number of parallel downloads") do |max|
+        Config.max_parallel_downloads = Integer(max)
       end
 
       opts.on("--[no-]color", "Toggle colorized output") do |v|

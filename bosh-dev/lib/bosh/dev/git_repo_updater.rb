@@ -1,25 +1,67 @@
-require 'open3'
+require 'bosh/dev/command_helper'
 
-module Bosh
-  module Dev
-    class GitRepoUpdater
-      def update_directory(dir)
-        Dir.chdir(dir) do
-          stdout, stderr, status = Open3.capture3('git', 'add', '.')
-          fail("Failed to git add untracked files in #{dir}: stdout: '#{stdout}', stderr: '#{stderr}'") unless status.success?
+module Bosh::Dev
+  class GitRepoUpdater
+    include CommandHelper
+    class PushRejectedError < StandardError; end
 
-          # Terrible patch until we start working with a git abstraction rather than shelling out like fools
-          # Check git status for "nothing to commit"...we know
-          guard_stdout, guard_stderr, guard_status = Open3.capture3('git', 'status')
-          fail("Failure to obtain git repo status in #{dir}: stdout: '#{guard_stdout}', stderr: '#{guard_stderr}'") unless guard_status.success?
+    def initialize(logger)
+      @logger = logger
+    end
 
-          unless guard_stdout.match(/^nothing to commit.*working directory clean.*$/)
-            stdout, stderr, status = Open3.capture3('git', 'commit', '-a', '-m', 'Autodeployer receipt file update')
-            fail("Failed to commit modified files in #{dir}: stdout: '#{stdout}', stderr: '#{stderr}'") unless status.success?
+    def update_directory(dir, commit_message)
+      Dir.chdir(dir) do
+        add_any_changes_to_index
+        return if no_changes?
 
-            stdout, stderr, status = Open3.capture3('git', 'push')
-            fail("Failed to git push from #{dir}: stdout: '#{stdout}', stderr: '#{stderr}'") unless status.success?
-          end
+        commit_changes(commit_message)
+        push_with_rebase
+      end
+    end
+
+    private
+    def add_any_changes_to_index
+      stdout, stderr, status = exec_cmd('git add .')
+      raise "Failed adding untracked files in #{Dir.pwd}: stdout: '#{stdout}', stderr: '#{stderr}'" unless status.success?
+    end
+
+    def no_changes?
+      _, _, status = exec_cmd('git diff-index --quiet HEAD --')
+      status.exitstatus == 0
+    end
+
+    def commit_changes(commit_message)
+      stdout, stderr, status = exec_cmd("git commit -a -m '#{commit_message}'")
+      raise "Failed committing modified files in #{Dir.pwd}: stdout: '#{stdout}', stderr: '#{stderr}'" unless status.success?
+    end
+
+    def push_with_rebase
+      attempt = 0
+      begin
+        attempt += 1
+        push
+      rescue PushRejectedError
+        pull
+
+        retry if attempt < 3
+      end
+    end
+
+    def pull
+      stdout, stderr, status = exec_cmd('git pull --rebase')
+      unless status.success?
+        raise "Failed to git pull from #{Dir.pwd}: stdout: '#{stdout}', stderr: '#{stderr}'"
+      end
+    end
+
+    def push
+      stdout, stderr, status = exec_cmd('git push')
+      unless status.success?
+        err_message =  "Failed git pushing from #{Dir.pwd}: stdout: '#{stdout}', stderr: '#{stderr}'"
+        if stderr =~ /rejected/
+          raise PushRejectedError, err_message
+        else
+          raise err_message
         end
       end
     end

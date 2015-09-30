@@ -1,19 +1,16 @@
-# Copyright (c) 2009-2012 VMware, Inc.
-
 require 'fileutils'
+require 'logging'
+require 'bosh/director/dns_helper'
 
 module Bosh::Director
 
-  # We are in the slow painful process of extracting all of this class-level
-  # behavior into instance behavior, much of it on the App class. When this
-  # process is complete, the Config will be responsible only for maintaining
-  # configuration information - not holding the state of the world.
+  # We want to shift from class methods to instance methods here.
 
   class Config
     class << self
       include DnsHelper
 
-      CONFIG_OPTIONS = [
+      attr_accessor(
         :base_dir,
         :cloud_options,
         :db,
@@ -29,23 +26,25 @@ module Bosh::Director
         :result,
         :revision,
         :task_checkpoint_interval,
+        :trusted_certs,
         :uuid,
         :current_job,
         :encryption,
         :fix_stateful_nodes,
         :enable_snapshots,
         :max_vm_create_tries,
-      ]
+        :nats_uri,
+      )
 
-      CONFIG_OPTIONS.each do |option|
-        attr_accessor option
-      end
-
-      attr_reader :db_config, :redis_logger_level
+      attr_reader(
+        :db_config,
+        :redis_logger_level,
+        :ignore_missing_gateway
+      )
 
       def clear
-        CONFIG_OPTIONS.each do |option|
-          self.instance_variable_set("@#{option}".to_sym, nil)
+        self.instance_variables.each do |ivar|
+          self.instance_variable_set(ivar, nil)
         end
 
         Thread.list.each do |thr|
@@ -72,16 +71,31 @@ module Bosh::Director
         # checkpoint task progress every 30 secs
         @task_checkpoint_interval = 30
 
-        logging = config.fetch('logging', {})
-        @log_device = MonoLogger::LocklessLogDevice.new(logging.fetch('file', STDOUT))
-        @logger = MonoLogger.new(@log_device)
-        @logger.level = Logger.const_get(logging.fetch('level', 'debug').upcase)
-        @logger.formatter = ThreadFormatter.new
+        logging_config = config.fetch('logging', {})
+        if logging_config.has_key?('file')
+          @log_file_path = logging_config.fetch('file')
+          shared_appender = Logging.appenders.file(
+            'DirectorLogFile',
+            filename: @log_file_path,
+            layout: ThreadFormatter.layout
+          )
+        else
+          shared_appender = Logging.appenders.io(
+            'DirectorStdOut',
+            STDOUT,
+            layout: ThreadFormatter.layout
+          )
+        end
 
-        # use a separate logger for redis to make it stfu
-        redis_logger = MonoLogger.new(@log_device)
-        logging = config.fetch('redis', {}).fetch('logging', {})
-        @redis_logger_level = Logger.const_get(logging.fetch('level', 'info').upcase)
+        @logger = Logging::Logger.new('Director')
+        @logger.add_appenders(shared_appender)
+        @logger.level = Logging.levelify(logging_config.fetch('level', 'debug'))
+
+        # use a separate logger with the same appender to avoid multiple file writers
+        redis_logger = Logging::Logger.new('DirectorRedis')
+        redis_logger.add_appenders(shared_appender)
+        logging_config = config.fetch('redis', {}).fetch('logging', {})
+        @redis_logger_level = Logging.levelify(logging_config.fetch('level', 'info'))
         redis_logger.level = @redis_logger_level
 
         # Event logger supposed to be overridden per task,
@@ -130,13 +144,16 @@ module Bosh::Director
           .fetch('auto_fix_stateful_nodes', false)
         @enable_snapshots = config.fetch('snapshots', {}).fetch('enabled', false)
 
+        @trusted_certs = config['trusted_certs'] || ''
+        @ignore_missing_gateway = config['ignore_missing_gateway']
+
         Bosh::Clouds::Config.configure(self)
 
         @lock = Monitor.new
       end
 
       def log_dir
-        File.dirname(@log_device.filename) if @log_device.filename
+        File.dirname(@log_file_path) if @log_file_path
       end
 
       def use_compiled_package_cache?
@@ -159,6 +176,13 @@ module Bosh::Director
         db_config = db_config.merge(connection_options)
 
         db = Sequel.connect(db_config)
+
+        Bosh::Common.retryable(sleep: 0.5, tries: 20, on: [Exception]) do
+          db.extension :connection_validator
+          true
+        end
+
+        db.pool.connection_validation_timeout = -1
         if logger
           db.logger = logger
           db.sql_log_level = :debug
@@ -184,7 +208,7 @@ module Bosh::Director
 
       def cloud_type
         if @cloud_options
-          @cloud_options['plugin']
+          @cloud_options['plugin'] || @cloud_options['provider']['name']
         end
       end
 
@@ -226,19 +250,13 @@ module Bosh::Director
         end
       end
 
-      def nats
-        @lock.synchronize do
-          if @nats.nil?
-            @nats = NATS.connect(:uri => @nats_uri, :autostart => false)
-          end
-        end
-        @nats
-      end
-
       def nats_rpc
-        @lock.synchronize do
-          if @nats_rpc.nil?
-            @nats_rpc = NatsRpc.new
+        # double-check locking to reduce synchronization
+        if @nats_rpc.nil?
+          @lock.synchronize do
+            if @nats_rpc.nil?
+              @nats_rpc = NatsRpc.new(@nats_uri)
+            end
           end
         end
         @nats_rpc
@@ -302,11 +320,13 @@ module Bosh::Director
         end
       end
 
+      # Migrates director UUID to database
+      # Currently used by integration tests to set director UUID
       def override_uuid
         new_uuid = nil
         state_file = File.join(base_dir, 'state.json')
 
-        if File.exists?(state_file)
+        begin
           open(state_file, 'r+') do |file|
 
             # Lock before read to avoid director/worker race condition
@@ -327,6 +347,9 @@ module Bosh::Director
           end
 
           FileUtils.rm_f(state_file)
+
+        rescue Errno::ENOENT
+          # Catch race condition since another process (director/worker) might migrated the state
         end
 
         new_uuid
@@ -343,9 +366,69 @@ module Bosh::Director
       end
     end
 
-    attr_reader :hash
+    def name
+      hash['name']
+    end
+
+    def port
+      hash['port']
+    end
+
+    def scheduled_jobs
+      hash['scheduled_jobs'] || []
+    end
+
+    def identity_provider
+      @identity_provider ||= begin
+        # no fetching w defaults?
+        user_management = hash['user_management']
+        user_management ||= {'provider' => 'local'}
+        provider_name = user_management['provider']
+
+        providers = {
+          'uaa' => Bosh::Director::Api::UAAIdentityProvider,
+          'local' => Bosh::Director::Api::LocalIdentityProvider,
+        }
+        provider_class = providers[provider_name]
+
+        if provider_class.nil?
+          raise ArgumentError,
+            "Unknown user management provider '#{provider_name}', " +
+              "available providers are: #{providers.keys.join(", ")}"
+        end
+
+        Config.logger.debug("Director configured with '#{provider_name}' user management provider")
+        provider_class.new(user_management[provider_name] || {}, Bosh::Director::Api::DirectorUUIDProvider.new(Config))
+      end
+    end
+
+    def resque_logger
+      logger = Logging::Logger.new('DirectorWorker')
+      resque_logging = hash.fetch('resque', {}).fetch('logging', {})
+      if resque_logging.has_key?('file')
+        logger.add_appenders(Logging.appenders.file('DirectorWorkerFile', filename: resque_logging.fetch('file'), layout: ThreadFormatter.layout))
+      else
+        logger.add_appenders(Logging.appenders.stdout('DirectorWorkerIO', layout: ThreadFormatter.layout))
+      end
+      logger.level = Logging.levelify(resque_logging.fetch('level', 'info'))
+      logger
+    end
+
+    def blobstore_config
+      hash.fetch('blobstore')
+    end
+
+    def backup_blobstore_config
+      hash['backup_destination']
+    end
+
+    def configure_evil_config_singleton!
+      Config.configure(hash)
+    end
 
     private
+
+    attr_reader :hash
 
     def initialize(hash)
       @hash = hash

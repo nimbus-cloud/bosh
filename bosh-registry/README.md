@@ -52,12 +52,14 @@ the IP addresses belonging to a instances:
 
 These are the credentials to connect to AWS services:
 
-* `access_key_id` (required)
-  IAM Access Key ID
-* `secret_access_key` (required)
-  AWS IAM Secret Access Key
 * `region` (required)
   AWS EC2 Region
+* `credentials_source` (optional)
+  Where to get AWS credentials. This can be set to `static` for to use an `access_key_id` and `secret_access_key` or `env_or_profile` to get the credentials from environment variables or an EC2 instance profile. Defaults to `static` if not set.
+* `access_key_id` (optional, required when `credentials_source` is `static`)
+  AWS IAM user access key
+* `secret_access_key` (optional, required when `credentials_source` is `static`)
+  AWS IAM secret access key
 * `max_retries` (optional, defaults to 2)
   Max number of retries to connect to AWS
 
@@ -73,6 +75,8 @@ These are the credentials to connect to OpenStack services:
   OpenStack API key
 * `tenant` (required)
   OpenStack tenant name
+* `domain` (optional)
+  OpenStack domain
 * `region` (optional)
   OpenStack region
 * `endpoint_type` (optional)
@@ -100,8 +104,9 @@ This is a sample of an Bosh Registry configuration file:
     cloud:
       plugin: openstack
       openstack:
-        auth_url: "http://127.0.0.1:5000/v2.0"
+        auth_url: "http://127.0.0.1:5000/v3.0"
         username: foo
         api_key: bar
         tenant: foo
+        domain: bar
         region:

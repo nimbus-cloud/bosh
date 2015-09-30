@@ -33,7 +33,7 @@ module Bosh::Cli::Command
             print_value("Name", status["name"])
             print_value("URL", target_url)
             print_value("Version", status["version"])
-            print_value("User", username, "not logged in")
+            print_value("User", status["user"], "not logged in")
             print_value("UUID", status["uuid"])
             print_value("CPI", status["cpi"], "n/a")
             print_feature_list(status["features"]) if status["features"]
@@ -59,90 +59,14 @@ module Bosh::Cli::Command
         else
           say("  not set".make_yellow)
         end
-
-        if in_release_dir?
-          nl
-          say("Release".make_green)
-
-          dev_version = Bosh::Cli::VersionsIndex.new(
-            File.join(work_dir, "dev_releases")).latest_version
-
-          final_version = Bosh::Cli::VersionsIndex.new(
-            File.join(work_dir, "releases")).latest_version
-
-          dev = release.dev_name
-          dev += "/#{dev_version}" if dev && dev_version
-
-          final = release.final_name
-          final += "/#{final_version}" if final && final_version
-
-          print_value("dev", dev)
-          print_value("final", final)
-        end
       end
-    end
-
-    # bosh login
-    usage "login"
-    desc  "Log in to currently targeted director. " +
-          "The username and password can also be " +
-          "set in the BOSH_USER and BOSH_PASSWORD " +
-          "environment variables."
-    def login(username = nil, password = nil)
-      target_required
-
-      if interactive?
-        username = ask("Your username: ").to_s if username.blank?
-
-        password_retries = 0
-        while password.blank? && password_retries < 3
-          password = ask("Enter password: ") { |q| q.echo = "*" }.to_s
-          password_retries += 1
-        end
-      end
-
-      if username.blank? || password.blank?
-        err("Please provide username and password")
-      end
-      logged_in = false
-
-      #Converts HighLine::String to String
-      username = username.to_s
-      password = password.to_s
-
-      director.user = username
-      director.password = password
-
-      if director.authenticated?
-        say("Logged in as `#{username}'".make_green)
-        logged_in = true
-      elsif non_interactive?
-        err("Cannot log in as `#{username}'".make_red)
-      else
-        say("Cannot log in as `#{username}', please try again".make_red)
-        login(username)
-      end
-
-      if logged_in
-        config.set_credentials(target, username, password)
-        config.save
-      end
-    end
-
-    # bosh logout
-    usage "logout"
-    desc  "Forget saved credentials for targeted director"
-    def logout
-      target_required
-      config.set_credentials(target, nil, nil)
-      config.save
-      say("You are no longer logged in to `#{target}'".make_yellow)
     end
 
     # bosh target
     usage "target"
     desc  "Choose director to talk to (optionally creating an alias). " +
           "If no arguments given, show currently targeted director"
+    option '--ca-cert FILE', String, 'Path to client certificate provided to UAA server'
     def set_target(director_url = nil, name = nil)
       if director_url.nil?
         show_target
@@ -159,12 +83,7 @@ module Bosh::Cli::Command
       end
 
       director_url = normalize_url(director_url)
-      if target && director_url == normalize_url(target)
-        say("Target already set to `#{target_name.make_green}'")
-        return
-      end
-
-      director = Bosh::Cli::Client::Director.new(director_url)
+      director = Bosh::Cli::Client::Director.new(director_url, nil, ca_cert: options[:ca_cert])
 
       begin
         status = director.get_status
@@ -179,6 +98,13 @@ module Bosh::Cli::Command
       config.target_name = status["name"]
       config.target_version = status["version"]
       config.target_uuid = status["uuid"]
+
+      old_ca_cert_path = config.ca_cert
+      expanded_ca_cert_path = config.save_ca_cert_path(options[:ca_cert])
+      if old_ca_cert_path != expanded_ca_cert_path
+        say("Updating certificate file path to `#{expanded_ca_cert_path.to_s.make_green}'")
+        nl
+      end
 
       unless name.blank?
         config.set_alias(:target, name, director_url)
@@ -311,7 +237,7 @@ module Bosh::Cli::Command
     end
 
     def get_director_status
-      Bosh::Cli::Client::Director.new(target).get_status
+      Bosh::Cli::Client::Director.new(target, credentials, ca_cert: config.ca_cert).get_status
     end
   end
 end

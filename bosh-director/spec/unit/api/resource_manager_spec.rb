@@ -23,7 +23,7 @@ module Bosh::Director
     end
 
     it 'raises an error when something went wrong with blobstore' do
-      blobstore.stub(:get).and_raise(
+      allow(blobstore).to receive(:get).and_raise(
         Bosh::Blobstore::BlobstoreError.new('bad stuff'))
 
       expect {
@@ -35,14 +35,27 @@ module Bosh::Director
       id = blobstore.create('some data')
       path = manager.get_resource_path(id)
 
-      File.exists?(path).should be(true)
-      File.read(path).should == 'some data'
+      expect(File.exists?(path)).to be(true)
+      expect(File.read(path)).to eq('some data')
+    end
+
+    it 'deletes temp blobstore resources older than 5 mintues' do
+      five_minutes_old = File.join(manager.resource_tmpdir, 'resource-ten_minutes_old')
+      one_minute_old = File.join(manager.resource_tmpdir, 'resource-one_minute_old')
+
+      FileUtils.touch([five_minutes_old], mtime: Time.now - 301)
+      FileUtils.touch([one_minute_old], mtime: Time.now - 60)
+
+      manager.clean_old_tmpfiles
+
+      expect(File.exist?(five_minutes_old)).to eq false
+      expect(File.exist?(one_minute_old)).to eq true
     end
 
     it 'should return the contents of the blobstore id' do
       contents = 'some data'
       id = blobstore.create(contents)
-      manager.get_resource(id).should == contents
+      expect(manager.get_resource(id)).to eq(contents)
     end
 
     it 'should delete a resource from the blobstore' do
