@@ -29,8 +29,8 @@ run_in_bosh_chroot $chroot '
 cd src
 tar zxvf drbd-8.4.5.tar.gz
 cd drbd-8.4.5
-make KDIR=/lib/modules/3.13.0-32-generic/build && make install
-depmod -a 3.13.0-32-generic
+make KDIR=/lib/modules/3.19.0-30-generic/build && make install
+depmod -a 3.19.0-30-generic
 '
 
 fi
