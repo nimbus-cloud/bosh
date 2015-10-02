@@ -45,8 +45,6 @@ EOS
 declare -a on_exit_items
 on_exit_items=()
 
-on_exit_items=()
-
 function on_exit {
   echo "Running ${#on_exit_items[@]} on_exit items..."
   for i in "${on_exit_items[@]}"
@@ -69,18 +67,3 @@ function add_on_exit {
     on_exit_items=("$*" "${on_exit_items[@]}")
   fi
 }
-
-#function on_exit {
-#  for i in "${on_exit_items[@]}"
-#  do
-#    eval $i
-#  done
-#}
-
-#function add_on_exit {
-#  local n=${#on_exit_items[*]}
-#  on_exit_items[$n]="$*"
-#  if [[ $n -eq 0 ]]; then
-#    trap on_exit EXIT
-#  fi
-#}
