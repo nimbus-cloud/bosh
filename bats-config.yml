@@ -1,0 +1,21 @@
+---
+cpi: vsphere
+properties:
+  uuid: 7cfbcb69-589b-47d4-bfc3-dc7dc5a2765d  # BAT_DIRECTOR UUID
+  stemcell:
+    name: bosh-vsphere-esxi-ubuntu-trusty-go_agent
+    version: "0000"
+  pool_size: 1
+  instances: 1
+  second_static_ip: 10.76.247.241 # Secondary (private) IP assigned to the bat-release job vm, used for testing network reconfiguration, must be in the primary network & different from static_ip
+  networks:
+  - name: static
+    type: manual
+    static_ip: 10.76.247.240 # Primary (private) IP assigned to the bat-release job vm, must be in the static range
+    cidr: 10.76.246.0/23
+    reserved:
+    - 10.76.246.1 - 10.76.247.239
+    - 10.76.247.251 - 10.76.247.253
+    static: ['10.76.247.240 - 10.76.247.245']
+    gateway: 10.76.247.254
+    vlan: dvpg-t-cld-Inf-10.76.246.0%2f23 # vSphere network name
