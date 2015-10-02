@@ -1,0 +1,45 @@
+building stemcell
+
+TODO: change ubuntu user uid to 1000
+
+find / -xdev -uid 900 -exec chown 1000 '{}' \+
+find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
+
+Make sure there is no .ruby-version file under the root folder
+
+cd bosh-stemcell
+vagrant up local
+vagrant ssh local
+cd /bosh
+
+# base image
+bundle exec rake stemcell:build_os_image[ubuntu,trusty,/tmp/ubuntu_base_image.tgz]
+
+# create bosh release
+export CANDIDATE_BUILD_NUMBER=3087
+bundle exec rake release:create_dev_release
+cd release
+bundle exec bosh create release --with-tarball
+cp release.tgz tmp/bosh-3087.tgz
+
+export CANDIDATE_BUILD_NUMBER=3087
+bundle exec rake stemcell:build_with_local_os_image[vsphere,esxi,ubuntu,trusty,go,/tmp/ubuntu_base_image.tgz]
+
+
+
+
+
+Building from public image:
+
+export CANDIDATE_BUILD_NUMBER=3087
+bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
+
+
+/mnt/stemcells/vsphere/esxi/ubuntu/work/work/chroot/
+3.19.0-30-generic
+
+
+running stemcell specs
+cd /bosh/bosh-stemcell;
+
+STEMCELL_IMAGE=/mnt/stemcells/vsphere/esxi/ubuntu/work/work/vsphere-esxi-ubuntu.raw STEMCELL_WORKDIR=/mnt/stemcells/vsphere/esxi/ubuntu/work/work OS_NAME=ubuntu bundle exec rspec -fd --tag ~exclude_on_vsphere spec/os_image/ubuntu_trusty_spec.rb spec/stemcells/ubuntu_trusty_spec.rb spec/stemcells/go_agent_spec.rb spec/stemcells/vsphere_spec.rb spec/stemcells/stig_spec.rb
