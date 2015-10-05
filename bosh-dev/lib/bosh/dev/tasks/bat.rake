@@ -11,3 +11,10 @@ namespace :bat do
     Dir.chdir('bat') { exec('rspec', 'spec/system/env_spec.rb') }
   end
 end
+
+namespace :bat do
+  task :net do
+    Dir.chdir('bat') { exec('rspec', 'spec/system/network_configuration_spec.rb') }
+  end
+end
+
