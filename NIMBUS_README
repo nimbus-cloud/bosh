@@ -29,7 +29,7 @@ bundle exec rake stemcell:build_with_local_os_image[vsphere,esxi,ubuntu,trusty,g
 
 
 
-Building from public image:
+Building stemcell from public base image and public bosh release:
 
 export CANDIDATE_BUILD_NUMBER=3087
 bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
