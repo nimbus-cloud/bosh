@@ -139,11 +139,12 @@ module Bosh::Stemcell
           # Misc
           :system_parameters,
           # customisations
-          :utils,
+          # :utils,
+          # :nagios,
           :munin,
-          :nagios,
           :root_certificate,
           :drbd,
+          :nimbus_password,
           # Finalisation
           :bosh_clean,
           :bosh_harden,

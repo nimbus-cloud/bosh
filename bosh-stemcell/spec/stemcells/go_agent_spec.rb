@@ -35,6 +35,7 @@ describe 'Stemcell with Go Agent', stemcell_image: true do
 
       describe 'mode' do
         let(:operator) { 'a' }
+        # TODO: fails
         it { should eq('770') }
       end
 
