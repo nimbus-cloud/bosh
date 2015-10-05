@@ -4,7 +4,7 @@ properties:
   uuid: 7cfbcb69-589b-47d4-bfc3-dc7dc5a2765d  # BAT_DIRECTOR UUID
   stemcell:
     name: bosh-vsphere-esxi-ubuntu-trusty-go_agent
-    version: "0000"
+    version: "3087"
   pool_size: 1
   instances: 1
   second_static_ip: 10.76.247.241 # Secondary (private) IP assigned to the bat-release job vm, used for testing network reconfiguration, must be in the primary network & different from static_ip
