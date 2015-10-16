@@ -18,7 +18,7 @@ gem 'bosh-release', path: 'bosh-release'
 gem 'bosh-template', path: 'bosh-template'
 gem 'simple_blobstore_server', path: 'simple_blobstore_server'
 
-gem 'bosh_aws_cpi', '~>2.0.2'
+gem 'bosh_aws_cpi', '~>2.1'
 gem 'rake', '~>10.0'
 
 # json version is hardcoded in release director, health_monitor and registry packages
@@ -58,6 +58,9 @@ group :development, :test do
   gem 'codeclimate-test-reporter', require: false
   gem 'vcr'
   gem 'pry'
+
+  # avoid upgrading until this issue is resolved: https://github.com/eventmachine/eventmachine/issues/633
+  gem 'eventmachine', '1.0.3'
 
   # Explicitly do not require serverspec dependency
   # so that it could be monkey patched in a deterministic way

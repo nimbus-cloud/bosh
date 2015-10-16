@@ -74,7 +74,7 @@ module Bosh::Director
         steps << proc {
           VmMetadataUpdater.build.update(@vm, {})
           apply_state(@instance.spec)
-          RenderedJobTemplatesCleaner.new(@instance.model, @blobstore).clean
+          RenderedJobTemplatesCleaner.new(@instance.model, @blobstore, @logger).clean
         }
       end
 

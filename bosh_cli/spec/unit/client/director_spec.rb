@@ -232,6 +232,15 @@ describe Bosh::Cli::Client::Director do
       @director.upload_stemcell('/path')
     end
 
+    it 'uploads local stemcell (with --fix option set)' do
+      expect(@director).to receive(:upload_and_track).
+        with(:post, '/stemcells?fix=true', '/path',
+             { :content_type => 'application/x-compressed',
+               :fix          => true }).
+        and_return(true)
+      @director.upload_stemcell('/path', fix: true)
+    end
+
     it 'uploads remote stemcell' do
       expect(@director).to receive(:request_and_track).
         with(:post, '/stemcells',
@@ -239,6 +248,16 @@ describe Bosh::Cli::Client::Director do
                :payload      => JSON.generate('location' => 'stemcell_uri') }).
         and_return(true)
       @director.upload_remote_stemcell('stemcell_uri')
+    end
+
+    it 'uploads remote stemcell (with --fix option set)' do
+      expect(@director).to receive(:request_and_track).
+        with(:post, '/stemcells?fix=true',
+             { :content_type => 'application/json',
+               :fix          => true,
+               :payload      => JSON.generate('location' => 'stemcell_uri') }).
+        and_return(true)
+      @director.upload_remote_stemcell('stemcell_uri', fix: true)
     end
 
     it 'lists stemcells' do
@@ -897,6 +916,17 @@ describe Bosh::Cli::Client::Director do
           expect {
             @director.send(:perform_http_request, :get, '/stuff/app/zb', 'payload', {})
           }.to raise_error(Bosh::Cli::CliError, /fake-error/)
+        end
+      end
+
+      context 'when connection to director uses invalid SSL Cerificate' do
+        it 'raises CliError error because Invalid SSL certificate was used' do
+          error_message = '*** certificate verify failed ***'
+          uri = '/stuff/app/zb'
+          expect(http_client).to receive(:request).and_raise(OpenSSL::SSL::SSLError, error_message)
+          expect {
+            @director.send(:perform_http_request, :get, uri, 'payload', {})
+          }.to raise_error(Bosh::Cli::CliError, "Invalid SSL Cert for '#{uri}': #{error_message}")
         end
       end
 
