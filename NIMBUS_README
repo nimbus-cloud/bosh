@@ -18,6 +18,6 @@ find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
 Exit and restart the vm.
 
 # Building stemcell from public base image and public bosh release:
-export NIMBUS_PASSWORD=c1oudc0w
-export STEMCELL_BUILD_NUMBER=3087
+export NIMBUS_PASSWORD=<stemcell_password>
+export STEMCELL_BUILD_NUMBER=<stemcell_version>
 bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
