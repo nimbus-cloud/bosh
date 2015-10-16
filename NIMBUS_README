@@ -1,9 +1,4 @@
-building stemcell
-
-TODO: change ubuntu user uid to 1000
-
-find / -xdev -uid 900 -exec chown 1000 '{}' \+
-find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
+Building stemcell
 
 Make sure there is no .ruby-version file under the root folder
 
@@ -12,34 +7,16 @@ vagrant up local
 vagrant ssh local
 cd /bosh
 
-# base image
-bundle exec rake stemcell:build_os_image[ubuntu,trusty,/tmp/ubuntu_base_image.tgz]
+Need to change ubuntu user uid to 1000, see this issue:
+https://github.com/cloudfoundry/bosh/issues/807
 
-# create bosh release
-export CANDIDATE_BUILD_NUMBER=3087
-bundle exec rake release:create_dev_release
-cd release
-bundle exec bosh create release --with-tarball
-cp release.tgz tmp/bosh-3087.tgz
+Edit /etc/passwd and /etc/group and change uid and gip from 900 to 1000 and run:
 
-export CANDIDATE_BUILD_NUMBER=3087
-bundle exec rake stemcell:build_with_local_os_image[vsphere,esxi,ubuntu,trusty,go,/tmp/ubuntu_base_image.tgz]
+find / -xdev -uid 900 -exec chown 1000 '{}' \+
+find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
 
 
-
-
-
-Building stemcell from public base image and public bosh release:
-
-export CANDIDATE_BUILD_NUMBER=3087
+# Building stemcell from public base image and public bosh release:
+export NIMBUS_PASSWORD=c1oudc0w
+export STEMCELL_BUILD_NUMBER=3087
 bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
-
-
-/mnt/stemcells/vsphere/esxi/ubuntu/work/work/chroot/
-3.19.0-30-generic
-
-
-running stemcell specs
-cd /bosh/bosh-stemcell;
-
-STEMCELL_IMAGE=/mnt/stemcells/vsphere/esxi/ubuntu/work/work/vsphere-esxi-ubuntu.raw STEMCELL_WORKDIR=/mnt/stemcells/vsphere/esxi/ubuntu/work/work OS_NAME=ubuntu bundle exec rspec -fd --tag ~exclude_on_vsphere spec/os_image/ubuntu_trusty_spec.rb spec/stemcells/ubuntu_trusty_spec.rb spec/stemcells/go_agent_spec.rb spec/stemcells/vsphere_spec.rb spec/stemcells/stig_spec.rb
