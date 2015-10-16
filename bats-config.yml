@@ -1,7 +1,7 @@
 ---
 cpi: vsphere
 properties:
-  uuid: 7cfbcb69-589b-47d4-bfc3-dc7dc5a2765d  # BAT_DIRECTOR UUID
+  uuid: 05329cce-d1f1-47d1-a4a5-9a31bb5a056b # BAT_DIRECTOR UUID
   stemcell:
     name: bosh-vsphere-esxi-ubuntu-trusty-go_agent
     version: "3087"
