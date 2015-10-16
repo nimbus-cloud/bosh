@@ -1,4 +1,4 @@
-Building stemcell
+BUILDING STEMCELL
 
 Make sure there is no .ruby-version file under the root folder
 
@@ -21,3 +21,9 @@ Exit and restart the vm.
 export NIMBUS_PASSWORD=<stemcell_password>
 export STEMCELL_BUILD_NUMBER=<stemcell_version>
 bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
+
+
+RUNNING BATS
+
+Update bats-config.yml and run_bats.sh
+Run run_bats.sh
