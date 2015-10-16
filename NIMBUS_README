@@ -15,6 +15,7 @@ Edit /etc/passwd and /etc/group and change uid and gip from 900 to 1000 and run:
 find / -xdev -uid 900 -exec chown 1000 '{}' \+
 find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
 
+Exit and restart the vm.
 
 # Building stemcell from public base image and public bosh release:
 export NIMBUS_PASSWORD=c1oudc0w
