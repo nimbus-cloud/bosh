@@ -1,11 +1,19 @@
 BUILDING STEMCELL
 
+Install vagrant plugins:
+
+vagrant plugin install vagrant-berkshelf
+vagrant plugin install vagrant-omnibus
+
+Install chef development kit:
+
+https://downloads.chef.io/chef-dk/
+
 Make sure there is no .ruby-version file under the root folder
 
 cd bosh-stemcell
 vagrant up local
 vagrant ssh local
-cd /bosh
 
 Need to change ubuntu user uid to 1000, see this issue:
 https://github.com/cloudfoundry/bosh/issues/807
@@ -15,9 +23,11 @@ Edit /etc/passwd and /etc/group and change uid and gip from 900 to 1000 and run:
 find / -xdev -uid 900 -exec chown 1000 '{}' \+
 find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
 
-Exit and restart the vm.
+Exit, restart and ssh again into the vm.
 
-# Building stemcell from public base image and public bosh release:
+cd /bosh
+
+# Building stemcell from public base image:
 export NIMBUS_PASSWORD=<stemcell_password>
 export STEMCELL_BUILD_NUMBER=<stemcell_version>
 bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
