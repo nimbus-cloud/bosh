@@ -6,4 +6,4 @@
 	url = https://github.com/cloudfoundry/bosh-davcli.git
 [submodule "bat"]
 	path = bat
-	url = https://github.com/cloudfoundry/bosh-acceptance-tests.git
+	url = https://github.com/nimbus-cloud/bosh-acceptance-tests.git
