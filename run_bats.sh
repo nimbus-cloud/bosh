@@ -12,4 +12,5 @@ export BAT_STEMCELL=$PWD/tmp/bosh-stemcell-3104-vsphere-esxi-ubuntu-trusty-go_ag
 
 #bundle exec rake bat:env
 #bundle exec rake bat:net
+#bundle exec rake bat:nimbus
 bundle exec rake bat

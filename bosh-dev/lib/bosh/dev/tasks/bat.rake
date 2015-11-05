@@ -18,3 +18,9 @@ namespace :bat do
   end
 end
 
+namespace :bat do
+  task :nimbus do
+    Dir.chdir('bat') { exec('rspec', 'spec/system/nimbus_active_passive_spec.rb') }
+  end
+end
+
