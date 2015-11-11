@@ -446,6 +446,7 @@ GEM
       resque (>= 1.0)
     rest-client (1.6.7)
       mime-types (>= 1.16)
+    retriable (2.1.0)
     rspec (3.0.0)
       rspec-core (~> 3.0.0)
       rspec-expectations (~> 3.0.0)
@@ -567,6 +568,7 @@ DEPENDENCIES
   rake (~> 10.0)
   redis
   rest-client
+  retriable
   rspec (~> 3.0.0)
   rspec-instafail
   rspec-its
@@ -582,3 +584,6 @@ DEPENDENCIES
   timecop (~> 0.7.1)
   vcr
   webmock
+
+BUNDLED WITH
+   1.10.6
