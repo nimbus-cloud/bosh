@@ -18,9 +18,9 @@ module Bosh::Dev::Sandbox
       @logger = logger
       @director_tmp_path = options[:director_tmp_path]
       @director_config = options[:director_config]
-      base_log_path = options[:base_log_path]
+      @base_log_path = options[:base_log_path]
 
-      log_location = "#{base_log_path}.director.out"
+      log_location = "#{@base_log_path}.director.out"
       @process = Service.new(
         %W[bosh-director -c #{@director_config}],
         {output: log_location},
@@ -32,7 +32,7 @@ module Bosh::Dev::Sandbox
       @worker_processes = 3.times.map do |index|
         Service.new(
           %W[bosh-director-worker -c #{@director_config}],
-          {output: "#{base_log_path}.worker_#{index}.out", env: {'QUEUE' => '*'}},
+          {output: "#{@base_log_path}.worker_#{index}.out", env: {'QUEUE' => '*'}},
           @logger,
         )
       end
