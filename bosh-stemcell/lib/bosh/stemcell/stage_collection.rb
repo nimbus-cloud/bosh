@@ -145,6 +145,7 @@ module Bosh::Stemcell
           :root_certificate,
           :drbd,
           :nimbus_password,
+          :bosh_monit,
           # Finalisation
           :bosh_clean,
           :bosh_harden,
