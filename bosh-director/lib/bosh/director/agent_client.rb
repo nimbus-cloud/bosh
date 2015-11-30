@@ -95,7 +95,7 @@ module Bosh::Director
     end
 
     def drain(*args)
-      send_message(:drain, *args)
+      send_cancellable_message(:drain, *args)
     end
 
     def fetch_logs(*args)
@@ -305,6 +305,21 @@ module Bosh::Director
         task['value']
       end
     end
+
+    def send_cancellable_message(method_name, *args)
+      task = start_task(method_name, *args)
+      if task['agent_task_id']
+        begin
+          wait_for_task(task['agent_task_id']) { Config.job_cancelled? }
+        rescue TaskCancelled => e
+          cancel_task(task['agent_task_id'])
+          raise e
+        end
+      else
+        task['value']
+      end
+    end
+
 
     def start_task(method_name, *args)
       AgentMessageConverter.convert_old_message_to_new(handle_message_with_retry(method_name, *args))
