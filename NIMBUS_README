@@ -1,39 +1,74 @@
+MERGING CHANGES
+
+    Identify upstream tag that you want to merge (stable-3145)
+    Checkout latest version of bosh
+        git checkout bskyb/merge-stable-3144
+    Create new branch
+        git checkout -b bskyb/merge-stable-3145
+    Add remote upstream and fetch changes
+        git remote add upstream https://github.com/cloudfoundry/bosh.git
+        git fetch upstream
+    Merge stable-3145 tag into the branch
+        git merge stable-3145
+    Resolve conflicts for files if any, reset bat and bosh-agent submodules
+        git reset HEAD bat
+        git reset HEAD go/src/github.com/cloudfoundry/bosh-agent
+    Merge bat and bosh-agent modules separately (assuming bskyb/merge-stable-3145 branch name for both)
+    Update bat and bosh-agent submodules
+        git submodule update --init --recursive
+        cd bat
+        git fetch
+        git checkout bskyb/merge-stable-3145
+        cd ../go/src/github.com/cloudfoundry/bosh-agent
+        git fetch
+        git checkout bskyb/merge-stable-3145
+    Commit and push the changes
+    Build the stemcell (see below for instructions)
+    Build bosh release
+        cd release
+        export CANDIDATE_BUILD_NUMBER=3145
+        bundle exec rake release:create_dev_release
+        bosh create release --with-tarball
+    Merge latest version of vsphere cpi and create a release
+
+
 BUILDING STEMCELL
 
-Install vagrant plugins:
+    Install vagrant plugins:
 
-vagrant plugin install vagrant-berkshelf
-vagrant plugin install vagrant-omnibus
+    vagrant plugin install vagrant-berkshelf
+    vagrant plugin install vagrant-omnibus
 
-Install chef development kit:
+    Install chef development kit:
 
-https://downloads.chef.io/chef-dk/
+    https://downloads.chef.io/chef-dk/
 
-Make sure there is no .ruby-version file under the root folder
+    Make sure there is no .ruby-version file under the root folder
 
-cd bosh-stemcell
-vagrant up local
-vagrant ssh local
+    cd bosh-stemcell
+    vagrant up local
+    vagrant ssh local
 
-Need to change ubuntu user uid to 1000, see this issue:
-https://github.com/cloudfoundry/bosh/issues/807
+    Need to change ubuntu user uid to 1000, see this issue:
+    https://github.com/cloudfoundry/bosh/issues/807
 
-Edit /etc/passwd and /etc/group and change uid and gip from 900 to 1000 and run:
+    Edit /etc/passwd and /etc/group and change uid and gip from 900 to 1000 and run:
 
-find / -xdev -uid 900 -exec chown 1000 '{}' \+
-find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
+    find / -xdev -uid 900 -exec chown 1000 '{}' \+
+    find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
 
-Exit, restart and ssh again into the vm.
+    Exit, restart and ssh again into the vm.
 
-cd /bosh
+    cd /bosh
 
-# Building stemcell from public base image:
-export NIMBUS_PASSWORD=<stemcell_password>
-export STEMCELL_BUILD_NUMBER=<stemcell_version>
-bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
+    # Building stemcell from public base image:
+    export NIMBUS_PASSWORD=<stemcell_password>
+    export STEMCELL_BUILD_NUMBER=<stemcell_version>
+    bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
 
 
 RUNNING BATS
 
-Update bats-config.yml and run_bats.sh
-Run run_bats.sh
+    Deploy bats-bosh with bosh-init (see bats-bosh-test-01 project in gitlab for details) using latest stemcell, bosh and cpi releases
+    Update bats-config.yml and run_bats.sh
+    Run run_bats.sh
