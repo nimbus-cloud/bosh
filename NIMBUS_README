@@ -29,6 +29,7 @@ MERGING CHANGES
         export CANDIDATE_BUILD_NUMBER=3145
         bundle exec rake release:create_dev_release
         bosh create release --with-tarball
+    Copy bosh cli gems to bosh-manifests project (bosh_cli folder)
     Merge latest version of vsphere cpi and create a release
 
 
