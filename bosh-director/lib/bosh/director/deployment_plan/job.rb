@@ -315,7 +315,7 @@ module Bosh::Director
             copy_property(result, collection, name, definition["default"])
           end
         end
-        
+
         result
       end
 

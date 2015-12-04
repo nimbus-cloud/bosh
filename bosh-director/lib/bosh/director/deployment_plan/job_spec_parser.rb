@@ -66,20 +66,23 @@ module Bosh::Director
       def parse_drbd
         if @job_spec["drbd"]
           @job.drbd_enabled = safe_property(@job_spec["drbd"], "enabled", :optional => true, :default => false)
-            
           @job.drbd_force_master = safe_property(@job_spec["drbd"], "force_master", :optional => true, :default => false)
-            
           @job.drbd_replication_node1 = safe_property(@job_spec["drbd"], "replication_node1")
           @job.drbd_replication_node2 = safe_property(@job_spec["drbd"], "replication_node2")
-            
           @job.drbd_replication_type = safe_property(@job_spec["drbd"], "replication_type")
-           
           @job.drbd_secret = safe_property(@job_spec["drbd"], "secret")
+        else
+          @job.drbd_enabled = false
+          @job.drbd_force_master = false
+          @job.drbd_replication_node1 = ''
+          @job.drbd_replication_node2 = ''
+          @job.drbd_replication_type = ''
+          @job.drbd_secret = ''
         end
       end
       
       def parse_register_dns
-        @job.dns_register_on_start = safe_property(@job_spec, "dns_register_on_start", :optional => true)
+        @job.dns_register_on_start = safe_property(@job_spec, "dns_register_on_start", :optional => true) || ''
       end
 
       def parse_lifecycle
