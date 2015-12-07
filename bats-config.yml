@@ -20,3 +20,13 @@ properties:
     static: ['10.76.247.240 - 10.76.247.245']
     gateway: 10.76.247.254
     vlan: dvpg-t-cld-Inf-10.76.246.0%2f23 # vSphere network name
+  - name: static_same                     # multiple manual networks test
+    type: manual
+    static_ip: 10.76.247.241
+    cidr: 10.76.246.0/23
+    reserved:
+    - 10.76.246.1 - 10.76.247.239
+    - 10.76.247.251 - 10.76.247.253
+    static: ['10.76.247.240 - 10.76.247.245']
+    gateway: 10.76.247.254
+    vlan: dvpg-t-cld-Inf-10.76.246.0%2f23 # vSphere network name
