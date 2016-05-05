@@ -20,8 +20,8 @@ Gem::Specification.new do |spec|
   spec.bindir       = 'bin'
   spec.executables  = %w(blobstore_client_console)
 
-  spec.add_dependency 'aws-sdk',         '1.60.2'
-  spec.add_dependency 'httpclient',      '=2.4.0'
+  spec.add_dependency 'aws-sdk-resources', '2.2.0'
+  spec.add_dependency 'httpclient',      '=2.7.1'
   spec.add_dependency 'multi_json',      '~> 1.1'
   spec.add_dependency 'bosh_common',     "~>#{version}"
 

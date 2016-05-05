@@ -21,34 +21,83 @@ module Bosh::Cli
 
     def unpack_manifest
       return @unpacked_manifest unless @unpacked_manifest.nil?
-      exit_success = fast_unpack('./release.MF')
+      exit_success = safe_fast_unpack('./release.MF')
       @unpacked_manifest = !!exit_success
     end
 
     def unpack_jobs
       return @unpacked_jobs unless @unpacked_jobs.nil?
-      exit_success = fast_unpack('./jobs/')
+      exit_success = safe_fast_unpack('./jobs/')
+      unless all_release_jobs_unpacked?
+        exit_success = safe_unpack('./jobs/')
+      end
       @unpacked_jobs = !!exit_success
     end
 
     def unpack_license
+      return false if manifest_yaml['license'].nil?
       return @unpacked_license unless @unpacked_license.nil?
-      exit_success = fast_unpack('./license.tgz')
+      exit_success = safe_fast_unpack('./license.tgz')
       @unpacked_license = !!exit_success
     end
 
-    def fast_unpack(target)
-      if RUBY_PLATFORM =~ /linux/
-        system("tar", "-C", @unpack_dir, "-xzf", @tarball_path, "--occurrence", "#{target}", out: "/dev/null", err: "/dev/null")
-      elsif RUBY_PLATFORM =~ /darwin/
-        if target[-1, 1] == "/"
-          system("tar", "-C", @unpack_dir, "-xzf", @tarball_path, "#{target}", out: "/dev/null", err: "/dev/null")
-        else
-          system("tar", "-C", @unpack_dir, "--fast-read", "-xzf", @tarball_path, "#{target}", out: "/dev/null", err: "/dev/null")
-        end
-      else
-        system("tar", "-C", @unpack_dir, "-xzf", @tarball_path, "#{target}", out: "/dev/null", err: "/dev/null")
+    # On machines using GNU based tar command, it should be able to unpack files irrespective of
+    # the ./ prefix in the file name
+    def safe_fast_unpack(target)
+      exit_status = raw_fast_unpack(target)
+      if !exit_status
+        processed_target = handle_dot_slash_prefix(target)
+        exit_status = raw_fast_unpack(processed_target)
       end
+      exit_status
+    end
+
+    def safe_unpack(target)
+      exit_status = raw_unpack(target)
+      if !exit_status
+        processed_target = handle_dot_slash_prefix(target)
+        exit_status = raw_unpack(processed_target)
+      end
+      exit_status
+    end
+
+    # This will [add or remove] the './' when trying to extract a specific file from archive
+    def handle_dot_slash_prefix(target)
+      if target =~ /^\.\/.*/
+        target.sub!(/^\.\//, '')
+      else
+        target.prepend("./")
+      end
+    end
+
+    def raw_fast_unpack(target)
+      tar_version, _, _ = Open3.capture3('tar', '--version')
+
+      case tar_version
+        when /.*gnu.*/i
+            Kernel.system("tar", "-C", @unpack_dir, "-xzf", @tarball_path, "--occurrence", "#{target}", out: "/dev/null", err: "/dev/null")
+        when /.*bsd.*/i
+          if target[-1, 1] == "/"
+            raw_unpack(target)
+          else
+            Kernel.system("tar", "-C", @unpack_dir, "--fast-read", "-xzf", @tarball_path, "#{target}", out: "/dev/null", err: "/dev/null")
+          end
+        else
+          raw_unpack(target)
+      end
+    end
+
+    def raw_unpack(target)
+      Kernel.system("tar", "-C", @unpack_dir, "-xzf", @tarball_path, "#{target}", out: "/dev/null", err: "/dev/null")
+    end
+
+    # verifies that all jobs in release manifest were unpacked
+    def all_release_jobs_unpacked?
+      return false if manifest_yaml['jobs'].nil?
+
+      manifest_job_names = manifest_yaml['jobs'].map { |j| j['name'] }.sort
+      unpacked_job_file_names = Dir.glob(File.join(@unpack_dir, 'jobs', '*')).map { |f| File.basename(f, '.*') }.sort
+      unpacked_job_file_names == manifest_job_names
     end
 
     # Unpacks tarball to @unpack_dir, returns true if succeeded, false if failed
@@ -61,7 +110,7 @@ module Bosh::Cli
     # Creates a new tarball from the current contents of @unpack_dir
     def create_from_unpacked(target_path)
       raise "Not unpacked yet!" unless @unpacked
-      !!system("tar", "-C", @unpack_dir, "-pczf", File.expand_path(target_path), ".", out: "/dev/null", err: "/dev/null")
+      SortedReleaseArchiver.new(@unpack_dir).archive(File.expand_path(target_path))
     end
 
     def exists?
@@ -131,7 +180,7 @@ module Bosh::Cli
 
     def upload_packages?(package_matches = [])
       return true if package_matches.nil?
-      package_matches.size != manifest_yaml[@packages_folder].size
+      package_matches.uniq.size != manifest_yaml[@packages_folder].map { |p| p['version'] }.uniq.size
     end
 
     # Repacks tarball according to the structure of remote release

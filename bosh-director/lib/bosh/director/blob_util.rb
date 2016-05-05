@@ -25,6 +25,12 @@ module Bosh::Director
     def self.delete_blob(blobstore_id)
       blobstore.delete(blobstore_id)
     end
+    
+    def self.verify_blob(blobstore_id, sha1)
+      sha1 == Digest::SHA1.hexdigest(blobstore.get(blobstore_id))
+    rescue Bosh::Blobstore::BlobstoreError => e
+      return false
+    end
 
     def self.save_to_global_cache(compiled_package, cache_key)
       global_cache_filename = [compiled_package.package.name, cache_key].join('-')
@@ -70,9 +76,10 @@ module Bosh::Director
 
       Models::CompiledPackage.create do |p|
         p.package = package
-        p.stemcell = stemcell
+        p.stemcell_os = stemcell.operating_system
+        p.stemcell_version = stemcell.version
         p.sha1 = compiled_package_sha1
-        p.build = Models::CompiledPackage.generate_build_number(package, stemcell)
+        p.build = Models::CompiledPackage.generate_build_number(package, stemcell.operating_system, stemcell.version)
         p.blobstore_id = blobstore_id
         p.dependency_key = dependency_key
       end

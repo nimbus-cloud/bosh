@@ -14,9 +14,6 @@ monit_archive=$monit_basename.tar.gz
 mkdir -p $chroot/$bosh_dir/src
 cp -r $dir/assets/$monit_archive $chroot/$bosh_dir/src
 
-# Require for later versions of monit
-#pkg_mgr install "libpam0g-dev"
-
 run_in_bosh_chroot $chroot "
 cd src
 tar zxvf $monit_archive

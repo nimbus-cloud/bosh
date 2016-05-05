@@ -1,3 +1,5 @@
+require 'json'
+
 namespace :stemcell do
   desc 'Create light stemcell from existing stemcell'
   task :build_light, [:stemcell_path, :virtualization_type] do |_, args|
@@ -77,7 +79,7 @@ namespace :stemcell do
       require 'tempfile'
       require 'bosh/dev/download_adapter'
 
-      os_image_versions_file = File.expand_path('../../config/os_image_versions.json', __FILE__)
+      os_image_versions_file = File.expand_path('../../../../../../bosh-stemcell/os_image_versions.json', __FILE__)
       os_image_versions = JSON.load(File.open(os_image_versions_file))
       os_image_version = os_image_versions[args.os_image_key]
       puts "Using OS image #{args.os_image_key}, version #{os_image_version}"
@@ -99,10 +101,9 @@ namespace :stemcell do
     end
   end
 
-  desc 'Build a stemcell using a local pre-built base OS image'
-  task :build_with_local_os_image, [:infrastructure_name, :hypervisor_name, :operating_system_name, :operating_system_version, :agent_name, :os_image_path] do |_, args|
+  desc 'Build a stemcell using a local OS image and release'
+  task :build_with_local_os_image_with_bosh_release_tarball, [:infrastructure_name, :hypervisor_name, :operating_system_name, :operating_system_version, :agent_name, :os_image_path, :bosh_release_tarball_path, :build_number] do |_, args|
     begin
-      require 'bosh/dev/build'
       require 'bosh/dev/gem_components'
       require 'bosh/stemcell/build_environment'
       require 'bosh/stemcell/definition'
@@ -111,15 +112,13 @@ namespace :stemcell do
       require 'bosh/stemcell/stemcell_packager'
       require 'bosh/stemcell/stemcell_builder'
 
-      # build stemcell
-      build = Bosh::Dev::Build.candidate
-      gem_components = Bosh::Dev::GemComponents.new(build.number)
+      gem_components = Bosh::Dev::GemComponents.new(args.build_number)
       definition = Bosh::Stemcell::Definition.for(args.infrastructure_name, args.hypervisor_name, args.operating_system_name, args.operating_system_version, args.agent_name, false)
       environment = Bosh::Stemcell::BuildEnvironment.new(
         ENV.to_hash,
         definition,
-        build.number,
-        build.release_tarball_path,
+        args.build_number,
+        args.bosh_release_tarball_path,
         args.os_image_path,
       )
 
@@ -166,6 +165,38 @@ namespace :stemcell do
       print_help
       raise e
     end
+  end
+
+  desc 'Build a stemcell using a local pre-built base OS image'
+  task :build_with_local_os_image, [:infrastructure_name, :hypervisor_name, :operating_system_name, :operating_system_version, :agent_name, :os_image_path] do |_, args|
+
+    begin
+      require 'bosh/dev/build'
+
+      # download bosh release from bucket
+      build = Bosh::Dev::Build.candidate
+      build_number = build.number
+
+      if 'no' == ENV['BOSH_MICRO_ENABLED']
+        release_tarball_path = '/dev/null'
+      else
+        release_tarball_path = build.release_tarball_path
+      end
+    rescue RuntimeError => e
+      print_help
+      raise e
+    end
+
+    Rake::Task['stemcell:build_with_local_os_image_with_bosh_release_tarball'].invoke(
+      args.infrastructure_name,
+      args.hypervisor_name,
+      args.operating_system_name,
+      args.operating_system_version,
+      args.agent_name,
+      args.os_image_path,
+      release_tarball_path,
+      build_number
+    )
   end
 
   def print_help
