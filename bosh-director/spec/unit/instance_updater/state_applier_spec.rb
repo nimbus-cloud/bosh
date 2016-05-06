@@ -38,7 +38,15 @@ module Bosh::Director
         compilation?: false,
         templates: [],
         update_spec: update_config.to_hash,
-        properties: {}
+        properties: {},
+        passive: 'disabled',
+        drbd_enabled: false,
+        drbd_force_master: false,
+        drbd_replication_node1: nil,
+        drbd_replication_node2: nil,
+        drbd_replication_type: nil,
+        drbd_secret: nil,
+        dns_register_on_start: nil,
       )
     end
     let(:update_config) do

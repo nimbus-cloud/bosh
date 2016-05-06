@@ -960,10 +960,13 @@ describe 'director.yml.erb.erb' do
                                                  'secret_access_key' => 'secret',
                                                  'use_ssl' => false,
                                                  'ssl_verify_peer' => false,
-                                                 's3_multipart_threshold' => 123,
                                                  'port' => 5155,
+                                                 'region' => nil,
                                                  'host' => 'myhost.hostland.edu',
+                                                 's3_multipart_threshold' => 123,
                                                  's3_force_path_style' => true,
+                                                 's3cli_config_path' => '/var/vcap/data/tmp/director',
+                                                 's3cli_path' => '/var/vcap/packages/s3cli/bin/s3cli',
                                                  'credentials_source' => 'static',
                                              })
         end
@@ -978,10 +981,13 @@ describe 'director.yml.erb.erb' do
                                                               'secret_access_key' => 'secret',
                                                               'use_ssl' => true,
                                                               'ssl_verify_peer' => false,
-                                                              's3_multipart_threshold' => 123,
                                                               'port' => 5155,
                                                               'host' => 'myhost.hostland.edu',
+                                                              'region' => nil,
+                                                              's3_multipart_threshold' => 123,
                                                               's3_force_path_style' => true,
+                                                              's3cli_config_path' => '/var/vcap/data/tmp/director',
+                                                              's3cli_path' => '/var/vcap/packages/s3cli/bin/s3cli',
                                                               'credentials_source' => 'static',
                                                           })
       end
@@ -994,9 +1000,10 @@ describe 'director.yml.erb.erb' do
                                                                                                 'secret_access_key' => 'secret',
                                                                                                 'use_ssl' => false,
                                                                                                 'ssl_verify_peer' => false,
-                                                                                                's3_multipart_threshold' => 123,
                                                                                                 'port' => 5155,
                                                                                                 'host' => 'myhost.hostland.edu',
+                                                                                                'region' => nil,
+                                                                                                's3_multipart_threshold' => 123,
                                                                                                 's3_force_path_style' => true,
                                                                                                 'credentials_source' => 'static',
                                                                                             })
@@ -1028,6 +1035,7 @@ describe 'director.yml.erb.erb' do
                                                                                                   's3_multipart_threshold' => 456,
                                                                                                   'port' => 5155,
                                                                                                   'host' => 'fakehost.example.com',
+                                                                                                  'region' => nil,
                                                                                                   'credentials_source' => 'static',
                                                                                               })
           end
@@ -1051,6 +1059,9 @@ describe 'director.yml.erb.erb' do
                                                               'access_key_id' => 'key',
                                                               'secret_access_key' => 'secret',
                                                               'credentials_source' => 'static',
+                                                              'region' => nil,
+                                                              's3cli_config_path' => '/var/vcap/data/tmp/director',
+                                                              's3cli_path' => '/var/vcap/packages/s3cli/bin/s3cli',
                                                           })
       end
 
@@ -1061,6 +1072,7 @@ describe 'director.yml.erb.erb' do
                                                                                                 'access_key_id' => 'key',
                                                                                                 'secret_access_key' => 'secret',
                                                                                                 'credentials_source' => 'static',
+                                                                                                'region' => nil,
                                                                                             })
         end
 
@@ -1080,6 +1092,7 @@ describe 'director.yml.erb.erb' do
                                                                                                   'access_key_id' => 'agent-key',
                                                                                                   'secret_access_key' => 'agent-secret',
                                                                                                   'credentials_source' => 'static',
+                                                                                                  'region' => nil,
                                                                                               })
           end
         end

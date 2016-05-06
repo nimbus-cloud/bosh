@@ -204,6 +204,11 @@ module Bosh::Director
       attr_reader :vm_type, :vm_extensions, :stemcell, :env, :name
       attr_reader :instance_plans
 
+      ### nimbus specific props - start ###
+      attr_reader :passive, :drbd_enabled, :drbd_force_master, :drbd_replication_node1, :drbd_replication_node2, \
+                  :drbd_replication_type, :drbd_secret, :dns_register_on_start
+      ### nimbus specific props - end ###
+
       def initialize(vm_type, vm_extensions, stemcell, env, compilation_network_name)
         @vm_type = vm_type
         @vm_extensions = vm_extensions

@@ -1,4 +1,5 @@
 require 'bosh/stemcell/disk_image'
+require 'rspec/core/formatters/console_codes'
 
 RSpec.configure do |config|
   def change_root_dir(example)

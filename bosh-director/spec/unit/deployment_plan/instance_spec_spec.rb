@@ -28,7 +28,16 @@ module Bosh::Director::DeploymentPlan
         link_spec: 'fake-link',
         compilation?: false,
         update_spec: {},
-        properties: properties)
+        properties: properties,
+        passive: 'disabled',
+        drbd_enabled: false,
+        drbd_force_master: false,
+        drbd_replication_node1: nil,
+        drbd_replication_node2: nil,
+        drbd_replication_type: nil,
+        drbd_secret: nil,
+        dns_register_on_start: nil,
+        )
     }
     let(:index) { 0 }
     let(:instance) { Instance.create_from_job(job, index, 'started', plan, {}, availability_zone, logger) }

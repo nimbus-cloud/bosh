@@ -60,7 +60,7 @@ module Bosh::Monitor
       end
 
       def process(event)
-        return if event.title =~ /SSH (Login|Logout)/
+        return if event.kind_of?(Bosh::Monitor::Events::Alert) && event.title =~ /SSH (Login|Logout)/
         @lock.synchronize do
           @queues[event.kind] ||= []
           @queues[event.kind] << event

@@ -138,7 +138,7 @@ module Bosh::Director
           'drbd_replication_type',
           'drbd_secret',
           'dns_register_on_start',
-        # nimbus2 - end
+          # nimbus2 - end
         ]
         template_hash = @full_spec.select {|k,v| keys.include?(k) }
 

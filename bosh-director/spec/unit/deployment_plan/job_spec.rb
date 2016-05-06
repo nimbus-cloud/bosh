@@ -217,13 +217,13 @@ describe Bosh::Director::DeploymentPlan::Job do
 
       job.bind_properties
 
-      expect(job.properties).to eq('foo' => {
+      expect(job.properties).to eq( 'dns' => nil,
+                                    'foo' => {
                                     'db' => {
                                       'user' => 'admin',
                                       'password' => '12321',
                                       'host' => 'localhost'
                                     },
-                                    'dns' => nil,
                                     'mem' => 2048
                                    }
                                 )
