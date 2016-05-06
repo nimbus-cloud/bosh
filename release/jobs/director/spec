@@ -236,7 +236,7 @@ properties:
   blobstore.secret_access_key:
     description: AWS secret_access_key used by s3 blobstore plugin
   blobstore.address:
-    description: Addess of blobstore server used by simple blobstore plugin
+    description: Address of blobstore server used by simple blobstore plugin
   blobstore.port:
     description: Port of blobstore server used by simple blobstore plugin
     default: 25250
