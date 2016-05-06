@@ -38,38 +38,18 @@ MERGING CHANGES
 
 BUILDING STEMCELL
 
-    Install vagrant plugins:
+    Follow instructions for docker: https://github.com/cloudfoundry/bosh/blob/master/bosh-stemcell/README.md
 
-    vagrant plugin install vagrant-berkshelf
-    vagrant plugin install vagrant-omnibus
-
-    Install chef development kit:
-
-    https://downloads.chef.io/chef-dk/
-
-    Make sure there is no .ruby-version file under the root folder
-
-    cd bosh-stemcell
-    vagrant up local
-    vagrant ssh local
-
-    Need to change ubuntu user uid to 1000, see this issue:
-    https://github.com/cloudfoundry/bosh/issues/807
-
-    Edit /etc/passwd and /etc/group and change uid and gip from 900 to 1000 and run:
-
-    find / -xdev -uid 900 -exec chown 1000 '{}' \+
-    find / -xdev -gid 900 -exec chgrp 1000 '{}' \+
-
-    Exit, restart and ssh again into the vm.
-
-    cd /bosh
+    # from within docker container
+    bundle install --local
 
     # Building stemcell from public base image:
     export NIMBUS_PASSWORD=<stemcell_password>
     export STEMCELL_BUILD_NUMBER=<stemcell_version>
     bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
 
+    # one of the tests fails: bosh-stemcell/spec/stemcells/go_agent_spec.rb:38
+    # created stemcell should be under tmp folder
 
 RUNNING BATS
 
