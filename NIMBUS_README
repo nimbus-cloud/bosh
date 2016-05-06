@@ -22,6 +22,8 @@ MERGING CHANGES
         cd ../go/src/github.com/cloudfoundry/bosh-agent
         git fetch
         git checkout bskyb/merge-stable-3145
+    Run unit and integration tests and fix any failures
+        bundle exec rake spec
     Commit and push the changes
     Build the stemcell (see below for instructions)
     Build bosh release
@@ -29,6 +31,7 @@ MERGING CHANGES
         export CANDIDATE_BUILD_NUMBER=3145
         bundle exec rake release:create_dev_release
         bosh create release --with-tarball
+    Run bosh acceptance tests (BATS) - see below for instructions
     Copy bosh cli gems to bosh-manifests project (bosh_cli folder)
     Merge latest version of vsphere cpi and create a release
 
