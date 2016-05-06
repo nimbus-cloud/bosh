@@ -1,17 +1,9 @@
 #!/bin/sh -e
-
-# We've seen problems on stemcell replacements when the mac has changed but the ip remains the same.
-# The router caches the old mac address and doesn't forward new traffic to the new box until that
-# box has sent some traffic via it. This call makes sure the router is aware of it on startup.
-# wget -O - -q -t 1 --connect-timeout=1 http://8.8.8.8
-
 #execute firstboot.sh only once
-
 if [ ! -e /root/firstboot_done ]; then
     if [ -e /root/firstboot.sh ]; then
         /root/firstboot.sh
     fi
     touch /root/firstboot_done
 fi
-
 exit 0

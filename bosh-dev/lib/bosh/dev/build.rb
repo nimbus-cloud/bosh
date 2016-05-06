@@ -129,9 +129,10 @@ module Bosh::Dev
       def release_tarball_path
         remote_dir = File.join(number.to_s, 'release')
         filename = promotable_artifacts.release_file
-        downloaded_release_path = "tmp/#{promotable_artifacts.release_file}"
-        download_adapter.download(UriProvider.pipeline_uri(remote_dir, filename), downloaded_release_path)
-        downloaded_release_path
+        source = UriProvider.pipeline_uri(remote_dir, filename)
+        destination = "tmp/#{filename}"
+        download_adapter.download(source, destination)
+        destination
       end
     end
   end
