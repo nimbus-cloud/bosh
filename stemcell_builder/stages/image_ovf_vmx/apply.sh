@@ -53,10 +53,10 @@ nvram = "nvram"
 deploymentPlatform = "windows"
 virtualHW.productCompatibility = "hosted"
 tools.upgrade.policy = "useGlobal"
-powerType.powerOff = "default"
+powerType.powerOff = "preset"
 powerType.powerOn = "default"
-powerType.suspend = "default"
-powerType.reset = "default"
+powerType.suspend = "preset"
+powerType.reset = "preset"
 
 displayName = "$vm_hostname $vm_arch"
 
