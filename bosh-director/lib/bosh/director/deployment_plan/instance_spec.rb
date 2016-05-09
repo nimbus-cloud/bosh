@@ -171,6 +171,7 @@ module Bosh::Director
           'id',
           'az',
           'networks',
+          'properties',
           'packages',
           'dns_domain_name',
           'configuration_hash',
