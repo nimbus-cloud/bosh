@@ -40,6 +40,9 @@ BUILDING STEMCELL
 
     Follow instructions for docker: https://github.com/cloudfoundry/bosh/blob/master/bosh-stemcell/README.md
 
+    # run this command from the root of the bosh project
+    docker run -it -v $PWD:/bosh -w /bosh -u ubuntu --privileged bosh/os-image-stemcell-builder
+
     # from within docker container
     bundle install --local
 
