@@ -54,6 +54,10 @@ BUILDING STEMCELL
     # one of the tests fails: bosh-stemcell/spec/stemcells/go_agent_spec.rb:38
     # created stemcell should be under tmp folder
 
+    # When run multiple times, you can run out of disk space, run this to do some docker cleanup:
+    docker rm `docker ps -a | grep Exited | awk '{print $1 }'`
+    docker rmi `docker images -aq`
+
 RUNNING BATS
 
     Deploy bats-bosh with bosh-init (see bats-bosh-test-01 project in gitlab for details) using latest stemcell, bosh and cpi releases
