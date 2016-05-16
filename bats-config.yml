@@ -4,7 +4,7 @@ properties:
   uuid: 05329cce-d1f1-47d1-a4a5-9a31bb5a056b # BAT_DIRECTOR UUID
   stemcell:
     name: bosh-vsphere-esxi-ubuntu-trusty-go_agent
-    version: 3232.2
+    version: 3232.3
   pool_size: 1
   instances: 1
   first_static_ip: 10.76.247.240

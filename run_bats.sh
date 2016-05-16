@@ -8,9 +8,9 @@ export BAT_INFRASTRUCTURE=vsphere
 export BAT_NETWORKING=manual
 #export BAT_VCAP_PASSWORD=c1oudc0w
 export BAT_VCAP_PASSWORD=<nimbus_password>
-export BAT_STEMCELL=$PWD/tmp/bosh-stemcell-3232.2-vsphere-esxi-ubuntu-trusty-go_agent.tgz
+export BAT_STEMCELL=$PWD/tmp/bosh-stemcell-3232.3-vsphere-esxi-ubuntu-trusty-go_agent.tgz
 
 #bundle exec rake bat:env
 #bundle exec rake bat:net
-#bundle exec rake bat:nimbus
-bundle exec rake bat
+#bundle exec rake bat:nimbus    # runs only active-passive nimbus test
+bundle exec rake bat            # runs all tests
