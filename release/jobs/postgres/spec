@@ -4,17 +4,11 @@ name: postgres
 templates:
   postgres_ctl.erb:  bin/postgres_ctl
   postgresql.conf.erb: config/postgresql.conf
-  postgres_backup.cron.erb: config/postgres_backup.cron
-  postgres_backup.erb: bin/postgres_backup  
-  pg_backup.sh.erb: bin/pg_backup.sh
-  utils.sh: bin/utils.sh
 
 packages:
   - postgres
 
 properties:
-  datacenter:
-    description: Datacenter this deployment is in
   postgres.user:
     description: Username clients must use to access Postgres
     default: bosh
@@ -35,21 +29,3 @@ properties:
   postgres.max_connections:
     description: Set max concurrent connections for database
     default: 100
-  postgres.backup.enable:
-    default: false
-  postgres.backup.datacenter:
-    description: Datacenter this backup was taken in
-  postgres.backup.name:
-    description: Root backup dir name
-  postgres.backup.first_node_only:
-    default: false
-  postgres.backup.cron_interval:
-    default: 0 7 * * *
-  postgres.backup.retention_days:
-    default: 30
-  postgres.backup.mount_point:
-    default: /var/vcap/services_backup
-  postgres.backup.nfs_server.address:
-    description: NFS server address to use for backup
-  postgres.backup.nfs_server.export_dir:
-    description: NFS server export dir for backups

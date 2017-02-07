@@ -47,9 +47,6 @@ case "$1" in
     cp $JOB_DIR/config/postgresql.conf $DATA_DIR
     chown -R vcap:vcap $DATA_DIR/pg_log
 
-    chmod +x $JOB_DIR/bin/postgres_backup
-    $JOB_DIR/bin/postgres_backup start
-
     echo "Starting PostgreSQL 9.0: "
     su - vcap -c "LD_LIBRARY_PATH=$PACKAGE_DIR/lib:$LD_LIBRARY_PATH $PACKAGE_DIR/bin/pg_ctl -o \"-h $HOST -p $PORT\" -w start -D $DATA_DIR -l \"$DATA_DIR/pg_log/startup.log\""
 

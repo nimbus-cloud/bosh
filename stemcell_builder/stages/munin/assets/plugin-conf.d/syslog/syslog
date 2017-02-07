@@ -1,4 +1,0 @@
-[syslog_ng_stats]
-user root
-env.source_name = source dst\.tcp
-env.source_id = myname

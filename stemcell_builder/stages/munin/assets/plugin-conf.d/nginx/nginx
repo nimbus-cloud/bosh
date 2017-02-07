@@ -1,2 +1,0 @@
-[nginx*]
-env.url=http://hostname:8888/nginx-status nginx_status

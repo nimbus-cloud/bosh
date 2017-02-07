@@ -1,9 +1,0 @@
-[redis*]
-env.host
-env.port
-env.password
-env.path
-[resque]
-env.namespace
-env.host
-env.port

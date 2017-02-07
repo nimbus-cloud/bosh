@@ -117,7 +117,7 @@ module Bosh::Stemcell
         # :utils,
         # :nagios,
         # :munin,
-        :root_certificate,
+        # :root_certificate,
         :drbd,
         :bosh_monit,
         # nimbus customisations - end
