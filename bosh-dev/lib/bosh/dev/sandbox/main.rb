@@ -2,6 +2,7 @@ require 'benchmark'
 require 'securerandom'
 require 'bosh/director/config'
 require 'bosh/dev/sandbox/service'
+require 'bosh/dev/sandbox/http_endpoint_connector'
 require 'bosh/dev/sandbox/socket_connector'
 require 'bosh/dev/sandbox/postgresql'
 require 'bosh/dev/sandbox/mysql'
@@ -84,8 +85,8 @@ module Bosh::Dev::Sandbox
 
       setup_nats
 
-      @uaa_service = UaaService.new(@port_provider, base_log_path, @logger)
-      @config_server_service = ConfigServerService.new(@port_provider, base_log_path, @logger)
+      @uaa_service = UaaService.new(@port_provider, sandbox_root, base_log_path, @logger)
+      @config_server_service = ConfigServerService.new(@port_provider, base_log_path, @logger, test_env_number)
       @nginx_service = NginxService.new(sandbox_root, director_port, director_ruby_port, @uaa_service.port, @logger)
 
       setup_database(db_opts)
