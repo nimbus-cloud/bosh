@@ -7,13 +7,98 @@ OS images are stored in S3 bucket [bosh-os-images](http://s3.amazonaws.com/bosh-
 
 Ubuntu 14.04 images have filename `bosh-ubuntu-trusty-os-image.tgz`
 
-* `rZZbZGNdsqz5VLZNsOtO9o2NI7aTaej5`
-  - rsyslog is reloaded upon logrotation (instead of restarted)
-  - built from 256.x (de22afef97f7304bacf6c7fe08cd91430d1b56ec)
+* `GvskmZQLLH3DL2sV57vQtFdk3Y19EAa3`
+  - periodic bump
+  - built from develop (2f1540ab7eb2c9eb9cd5003eaf13f046e7b13ad8)
 
-* `nPfyi.7Z9VDhvwyVT0_m_M1OlwJOes5o`
-  - USN-2959-1: OpenSSL vulnerabilities
-  - built from 256.x (108a503ae3d5ee27959cf24a5dccdd592430de4c)
+* `bLOLC9NAIukj3gmD1HCP73FLezVNYaTM`
+  - periodic bump
+  - built from develop (61a9d0dc355aac073dc95d10335ab839fa4dddc3)
+
+* `fJsqdWrUm1v7AY.D8qUr42.4R4Nrnx9f`
+  - fix rsyslog/systemd startup
+  - restrict dmesg access
+  - built from develop (f2519686a6bd7601121b5dccb05c4b210c0ba450)
+
+* `Hxx7ds96bprYfbT1Jd57cbDSGHSL88Oe`
+  - Update README to correct path (36622f4)
+  - Centos delays the start of rsyslogd using systemd (1c85054)
+  - Restrict syslog access via dmesg_restrict=1 sysctl call (94dadb8)
+  - Add logic to check if rsyslogd pid file exists before attempting to kill the process by pid (552376b)
+  - kill HUP rsyslog upon logrotation (723f589)
+  - bump bosh_aws_cpi gem (49bfedf)
+  - Fix broken stemcell cis spec on azure (fba40db)
+  - Change permissions on agent key to 600 (a9d7d89)
+  - built from develop (94dadb8beb7f92d6cd53a4925ff4803699e780b5)
+
+* `m7zyaL24BiYlXuS.Canxzv2AmoKK8A4_`
+  - Fix issues with rsyslog
+  - built from develop (4e7326cce2afc703440b0198fcad9017ad91caba)
+
+* `cRIqmh9CZLfr3jdgkYpEHsj5yB7Ge5ZS`
+  - Update for CIS tests
+  - built from develop (04c48a6ec29605b547adcb6f68d02cbaa02a38cd)
+
+* `aL8fvTOVrw5FFakrMEy8kUIebgmqTGwV`
+  - default hostname `bosh-stemcell`
+  - increase maxkeys, root_maxkeys
+  - lower tcp keepalives
+  - built from develop (3f1bfcbd90c83455ee8b6c8aea016ef6084b0b0a)
+
+* `fDbsoGyzyAdm47.G4Y_d5pxqKQYAcSGk`
+  - periodic bump
+  - includes /var/log bind mount to ephemeral partition
+  - built from develop (23067ad8d25acde028861aaf659db8a2a43665d9)
+
+* `87OMY2hUCi7ewDzwhSUYGdyt4xd127_z`
+  - periodic bump
+  - built from develop (124a879424fe144dbc84c43922ef91131edb8f51)
+
+* `RhvGBE_qJSm7CM4gLshNvAHf9zbbNcKc`
+  - update for CIS tests
+  - built from develop (d858c19af2bf48287f5d192683d9dd606746dadf)
+
+* `3_lwAnVp59D2iUruNsSlEbfa5oBYnTmr`
+  - periodic bump
+  - update for CIS tests
+  - built from develop (d52c3358980dfe2fa21e5c6314633b8e8a06bba8)
+
+* `cjlP5Ciy18FUTcwc9KcmcWETsg7iUPxa`
+  - periodic bump
+  - update for CIS tests
+  - built from develop (bc8683d8c5fd48b2a80d9841c6dd23d4df69256f)
+
+* `.IPDBSu6JIz8v6P7R1kE6gbKqeLufdBv`
+  - periodic bump
+  - built from develop (fafaffe71b444f444ef8dc9cb95e53d924880b7e)
+
+* `OIJ7Qeu3QZMG3J0rSoI6lx8hdcZfaV5R`
+  - update for CIS tests
+  - built from develop (99aebc025dc4093981395d75be52369ced2d7131)
+
+* `Nh0.et3GyuktazQ9_jOwJGqByyicDrgV`
+  - update for CIS tests
+  - built from develop (a8d26078eb4a2fb277068381c76da638f40b5b36)
+
+* `oPXNdD8b5WwJXZZQBEYmdIVT1.Om7z2T`
+  - update nginx to 1.11.1
+  - built from develop (1af67b94cad42ff2133e383afd6d174721253dbc)
+
+* `ApGJBfSesa7VFhEu3RLRTIqiL1R7E_3J`
+  - update for CIS tests
+  - built from develop (3dfd04cd65c73a01e2f2f1b7310a33687ab27111)
+
+* `odCwzNL6fL14dOpN4SLDwru.6_LCooLl`
+  - USN-2977-1: Linux kernel (Vivid HWE) vulnerability
+  - built from develop (ce8e1284890e0079923f26533c0e0f7f6c5b6a0e)
+
+* `YsMYRqAqNEpQPA1bNtE26bg3zH6eR9qP`
+  - periodic bump with rsyslog reload changes
+  - built from develop (15a4ef77db335b186d183323f5a1f6819c35bdce)
+
+* `IstSjjYJuckEZbTJZ9wcV12hYiX2Nzca`
+  - bumped for USN-2959-1: OpenSSL vulnerabilities
+  - built from develop (95f5d9cc816f934db64a80188cf0c9e80ab15dda)
 
 * `GvyJwqBPjPEYBVCYrUHp0R7qJUHcTJGD`
   - includes gov1 STIGs
@@ -422,9 +507,95 @@ CentOS 6.6 images have filename `bosh-centos-6-os-image.tgz`
 
 CentOS 7 images have filename `bosh-centos-7-os-image.tgz`
 
-* `CiUo.LMh2eoPIP668WYzbnhcPJD4sSwu`
-  - rsyslog is reloaded upon logrotation (instead of restarted)
-  - built from develop (de22afef97f7304bacf6c7fe08cd91430d1b56ec)
+* `DEb4kvEGXQjZCLQxGU15lhjs_otNKr7x`
+  - periodic bump
+  - built from develop (2f1540ab7eb2c9eb9cd5003eaf13f046e7b13ad8)
+
+* `ZZ5ld9RM.niIroTsljGRKjRhvx6VPmTA`
+  - periodic bump
+  - built from develop (61a9d0dc355aac073dc95d10335ab839fa4dddc3)
+
+* `ZNADP00BuUhn3_MdzRSr8sdufTaYsN.6`
+  - fix rsyslog/systemd startup
+  - restrict dmesg access
+  - built from develop (f2519686a6bd7601121b5dccb05c4b210c0ba450)
+
+* `N4MRLzeURWZ_HltNBilu3v_5rjE9TpDD`
+  - Update README to correct path (36622f4)
+  - Centos delays the start of rsyslogd using systemd (1c85054)
+  - Restrict syslog access via dmesg_restrict=1 sysctl call (94dadb8)
+  - Add logic to check if rsyslogd pid file exists before attempting to kill the process by pid (552376b)
+  - kill HUP rsyslog upon logrotation (723f589)
+  - bump bosh_aws_cpi gem (49bfedf)
+  - Fix broken stemcell cis spec on azure (fba40db)
+  - Change permissions on agent key to 600 (a9d7d89)
+  - built from develop (94dadb8beb7f92d6cd53a4925ff4803699e780b5)
+
+* `Q9jt5NFnxlmffpRr9cyrwX9wLjGthk0f`
+  - Fix issues with rsyslog
+  - built from develop (4e7326cce2afc703440b0198fcad9017ad91caba)
+
+* `dUuH5OESdcG2gxlUY2sYRodjshUH9D8_`
+  - update for CIS tests
+  - built from develop (04c48a6ec29605b547adcb6f68d02cbaa02a38cd)
+
+* `XmT_1ipi1dbj0avjwSm2Zl1fpdd7p0VP`
+  - default hostname `bosh-stemcell`
+  - increase maxkeys, root_maxkeys
+  - lower tcp keepalives
+  - built from develop (3f1bfcbd90c83455ee8b6c8aea016ef6084b0b0a)
+
+* `CZv5v6ZNkMAULzBeMphcRlvus6OjEQrN`
+  - periodic bump
+  - includes /var/log bind mount to ephemeral partition
+  - built from develop (23067ad8d25acde028861aaf659db8a2a43665d9)
+
+* `OizyRQpsuAidGQJaiwZJxcnn8jTiRFYL`
+  - periodic bump
+  - built from develop (124a879424fe144dbc84c43922ef91131edb8f51)
+
+* `X41YZOz_1KFGRZQHewsFYIYT3wIcUTCb`
+  - update for CIS tests
+  - built from develop (d858c19af2bf48287f5d192683d9dd606746dadf)
+
+* `fCznvIcWGgpX6P8iHBVovCmkUKJ7Yppy`
+  - periodic bump
+  - update for CIS tests
+  - PR to fix `parted` tests
+  - built from develop (d52c3358980dfe2fa21e5c6314633b8e8a06bba8)
+
+* `p36yQTJQCRB46AdsY_R8xzQ6UxsXufCd`
+  - periodic bump
+  - update for CIS tests
+  - built from develop (bc8683d8c5fd48b2a80d9841c6dd23d4df69256f)
+
+* `4grMWwbdPN_eKp7rFq6wtOw1k6WOFeCh`
+  - periodic bump
+  - built from develop (fafaffe71b444f444ef8dc9cb95e53d924880b7e)
+
+* `yhFKKsGF1r62vIA4UpTjc1qcRCT1fJVp`
+  - update for CIS tests
+  - built from develop (99aebc025dc4093981395d75be52369ced2d7131)
+
+* `cQdYcoXI4hjmFlxBRyRvC2ROUcdJJEnl`
+  - update for CIS tests
+  - built from develop (a8d26078eb4a2fb277068381c76da638f40b5b36)
+
+* `NIy8pyhN76gikcaqacX40uxB.ePoKNKJ`
+  - update nginx to 1.11.1
+  - built from develop (1af67b94cad42ff2133e383afd6d174721253dbc)
+
+* `WTOHgTn21GfhCJIvxY8BLEk0BXJEG7rO`
+  - update for CIS tests
+  - built from develop (3dfd04cd65c73a01e2f2f1b7310a33687ab27111)
+
+* `UGbyeTxZ1vpbhzmbSmCovLpOLRDCPd4W`
+  - periodic bump with rsyslog reload changes
+  - built from develop (15a4ef77db335b186d183323f5a1f6819c35bdce)
+
+* `pYgqTvtvYYhvVwsK1YChI_Y.p3ob5XW1`
+  - periodic bump
+  - built from develop (95f5d9cc816f934db64a80188cf0c9e80ab15dda)
 
 * `sNzzvPR7ZvX8gBdSKLIgLxaR4KNGLoWM`
   - includes gov1 STIGs

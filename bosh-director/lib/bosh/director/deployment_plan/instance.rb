@@ -2,7 +2,7 @@ require 'securerandom'
 
 module Bosh::Director
   module DeploymentPlan
-    # Represents a single job instance.
+    # Represents a single Instance Group instance.
     class Instance
 
       # @return [Integer] Instance index
@@ -81,7 +81,6 @@ module Bosh::Director
 
         # reservation generated from current state/DB
         @existing_network_reservations = InstanceNetworkReservations.new(logger)
-        @dns_manager = DnsManagerProvider.create
 
         @virtual_state = virtual_state
       end
@@ -181,8 +180,15 @@ module Bosh::Director
         end
       end
 
-      def update_trusted_certs
-        agent_client.update_settings(Config.trusted_certs)
+      def update_instance_settings
+        disk_associations = @model.reload.active_persistent_disks.collection.select do |disk|
+          !disk.model.managed?
+        end
+        disk_associations.map! do |disk|
+           {'name' => disk.model.name, 'cid' => disk.model.disk_cid}
+        end
+
+        agent_client.update_settings(Config.trusted_certs, disk_associations)
         @model.update(:trusted_certs_sha1 => Digest::SHA1.hexdigest(Config.trusted_certs))
       end
 
@@ -194,12 +200,6 @@ module Bosh::Director
         AgentClient.with_vm_credentials_and_agent_id(@model.credentials, @model.agent_id)
       end
 
-      ##
-      # @return [String] dns record name
-      def dns_record_name(hostname, network_name)
-        [hostname, job.canonical_name, Canonicalizer.canonicalize(network_name), Canonicalizer.canonicalize(@deployment_model.name), @dns_manager.dns_domain_name].join('.')
-      end
-
       def cloud_properties_changed?
         changed = cloud_properties != @model.cloud_properties_hash
         log_changes(__method__, @model.cloud_properties_hash, cloud_properties) if changed
@@ -207,11 +207,11 @@ module Bosh::Director
       end
 
       def current_job_spec
-        @model.spec['job']
+        @model.spec_p('job')
       end
 
       def current_packages
-        @model.spec['packages']
+        @model.spec_p('packages')
       end
 
       def current_job_state

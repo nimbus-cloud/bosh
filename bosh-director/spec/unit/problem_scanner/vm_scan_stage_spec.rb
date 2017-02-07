@@ -13,6 +13,12 @@ module Bosh::Director
       )
     end
 
+    def create_vm(i, options = {})
+      options = {state: 'started', lifecycle: 'service', ignore: false, vm_cid: "vm-cid-#{i}"}.merge(options)
+      job_name = "job-#{i}"
+      Models::Instance.make(vm_cid: options[:vm_cid], agent_id: "agent-#{i}", deployment: deployment, job: job_name, index: i, state: options[:state], ignore: options[:ignore], spec_json: JSON.dump({lifecycle: options[:lifecycle]}))
+    end
+
     let(:instance_manager) { instance_double(Api::InstanceManager) }
     let(:problem_register) { ProblemScanner::ProblemRegister.new(deployment, logger) }
     before do
@@ -30,7 +36,7 @@ module Bosh::Director
     describe '#scan' do
       it 'scans a subset of vms' do
         instances = (1..3).collect do |i|
-          Models::Instance.make(agent_id: "agent-#{i}", deployment: deployment, job: "job-#{i}", index: i)
+          create_vm(i)
         end
 
         allow(instance_manager).to receive(:find_by_name).with(deployment, 'job-1', 1).and_return(instances[0])
@@ -64,14 +70,50 @@ module Bosh::Director
         vm_scanner.scan([['job-1', 1], ['job-2', 2]])
       end
 
+      context 'when service instance is detached' do
+        let!(:detached_instance) { create_vm(0, state: 'detached', vm_cid: nil) }
+
+        before(:each) do
+          unresponsive_agent = double(AgentClient)
+          agent_options = { timeout: 10, retry_methods: { get_state: 0}}
+          allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(detached_instance.credentials, detached_instance.agent_id, agent_options).and_return(unresponsive_agent)
+          allow(unresponsive_agent).to receive(:get_state).and_raise(RpcTimeout)
+        end
+
+        it 'does not report any problem' do
+          expect(event_logger).to receive(:track_and_log).with('Checking VM states')
+          expect(event_logger).to receive(:track_and_log).with('0 OK, 0 unresponsive, 0 missing, 0 unbound')
+
+          expect(problem_register).to_not receive(:problem_found)
+
+          vm_scanner.scan
+        end
+      end
+
+      context "when instance lifecycle is 'errand'" do
+        let!(:errand_vm) { create_vm(0, lifecycle: 'errand', vm_cid: nil) }
+
+        before(:each) do
+          unresponsive_agent = double(AgentClient)
+          agent_options = { timeout: 10, retry_methods: { get_state: 0}}
+          allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(errand_vm.credentials, errand_vm.agent_id, agent_options).and_return(unresponsive_agent)
+          allow(unresponsive_agent).to receive(:get_state).and_raise(RpcTimeout)
+        end
+
+        it 'does not report any problem' do
+          expect(event_logger).to receive(:track_and_log).with('Checking VM states')
+          expect(event_logger).to receive(:track_and_log).with('0 OK, 0 unresponsive, 0 missing, 0 unbound')
+
+          expect(problem_register).to_not receive(:problem_found)
+
+          vm_scanner.scan
+        end
+      end
+
       context 'when agent on a VM did not respond in time' do
         let!(:unresponsive_vm1) { create_vm(0) }
         let!(:unresponsive_vm2) { create_vm(1) }
         let!(:responsive_vm) { create_vm(2) }
-
-        def create_vm(i)
-          Models::Instance.make(vm_cid: "vm-cid-#{i}", agent_id: "agent-#{i}", deployment: deployment, job: "job-#{i}", index: i)
-        end
 
         before do
           unresponsive_agent1 = double(AgentClient)
@@ -95,6 +137,41 @@ module Bosh::Director
           }
           allow(responsive_agent).to receive(:get_state).and_return(good_state)
           allow(responsive_agent).to receive(:list_disk).and_return([])
+        end
+
+        context 'when instance has no VM assigned' do
+          let!(:instance_without_vm) {create_vm(4, vm_cid: nil)}
+
+          before(:each) {
+            unresponsive_agent = double(AgentClient)
+            agent_options = { timeout: 10, retry_methods: { get_state: 0}}
+            allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(instance_without_vm.credentials, instance_without_vm.agent_id, agent_options).and_return(unresponsive_agent)
+            allow(unresponsive_agent).to receive(:get_state).and_raise(RpcTimeout)
+            allow(cloud).to receive(:has_vm?).with('vm-cid-0').and_return(true)
+            allow(cloud).to receive(:has_vm?).with('vm-cid-1').and_return(true)
+          }
+
+          it 'registers missing VM problem' do
+            expect(event_logger).to receive(:track_and_log).with('Checking VM states')
+            expect(event_logger).to receive(:track_and_log).with('1 OK, 2 unresponsive, 1 missing, 0 unbound')
+
+            expect(problem_register).to receive(:problem_found).with(
+                :unresponsive_agent,
+                unresponsive_vm1
+            )
+
+            expect(problem_register).to receive(:problem_found).with(
+                :unresponsive_agent,
+                unresponsive_vm2
+            )
+
+            expect(problem_register).to receive(:problem_found).with(
+                :missing_vm,
+                instance_without_vm
+            )
+
+            vm_scanner.scan
+          end
         end
 
         context 'when cloud implements has_vm?' do
@@ -167,11 +244,45 @@ module Bosh::Director
             vm_scanner.scan
           end
         end
+
+        context 'when a VM is ignored' do
+          before do
+            ignored_unresponsive_vm = create_vm(4, ignore: true)
+            ignored_responsive_vm = create_vm(5, ignore: true)
+
+            ignored_unresponsive_agent = double(AgentClient)
+            ignored_responsive_agent =   double(AgentClient)
+            agent_options = { timeout: 10, retry_methods: { get_state: 0}}
+
+
+            allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(ignored_unresponsive_vm.credentials, ignored_unresponsive_vm.agent_id, agent_options).and_return(ignored_unresponsive_agent)
+            allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(ignored_responsive_vm.credentials, ignored_responsive_vm.agent_id, agent_options).and_return(ignored_responsive_agent)
+            allow(ignored_unresponsive_agent).to receive(:get_state).and_raise(RpcTimeout)
+
+            # Working agent
+            good_state = {
+                'deployment' => 'fake-deployment',
+                'job' => {'name' => 'job-1'},
+                'index' => 0
+            }
+            allow(ignored_responsive_agent).to receive(:get_state).and_return(good_state)
+            allow(ignored_responsive_agent).to receive(:list_disk).and_return([])
+
+            allow(cloud).to receive(:has_vm?).and_return(true)
+          end
+
+          it 'it is not scanned' do
+            expect(event_logger).to receive(:track_and_log).with('Checking VM states')
+            expect(event_logger).to receive(:track_and_log).with('1 OK, 2 unresponsive, 0 missing, 0 unbound, 2 ignored')
+
+            vm_scanner.scan
+          end
+        end
       end
     end
 
     describe 'agent_disks' do
-      let(:instance) { Models::Instance.make(vm_cid: 'vm-cid', agent_id: 'agent-1', deployment: deployment, job: 'job-1', index: 0) }
+      let(:instance) { create_vm(0) }
       before { allow(cloud).to receive(:has_vm?).and_return(true) }
 
       let(:agent) { double('Bosh::Director::AgentClient') }
@@ -199,7 +310,7 @@ module Bosh::Director
         it 'returns disk cid registered on vm' do
           expect(problem_register).to receive(:problem_found).with(:unresponsive_agent, instance)
           vm_scanner.scan
-          expect(vm_scanner.agent_disks['fake-disk-cid']).to eq(['vm-cid'])
+          expect(vm_scanner.agent_disks['fake-disk-cid']).to eq(['vm-cid-0'])
         end
       end
 
@@ -229,7 +340,7 @@ module Bosh::Director
 
       context 'when disk is mounted twice' do
         before do
-          second_instance = Models::Instance.make(vm_cid: 'vm-cid-2', agent_id: 'agent-2', deployment: deployment, job: 'job-2', index: 2)
+          second_instance = create_vm(1)
 
           agent_2 = double('agent-2')
           allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).with(second_instance.credentials, second_instance.agent_id, anything).and_return(agent_2)
@@ -248,7 +359,7 @@ module Bosh::Director
         it 'returns all owners' do
           expect(problem_register).to_not receive(:problem_found)
           vm_scanner.scan
-          expect(vm_scanner.agent_disks['fake-disk-cid']).to eq(['vm-cid', 'vm-cid-2'])
+          expect(vm_scanner.agent_disks['fake-disk-cid']).to eq(['vm-cid-0', 'vm-cid-1'])
         end
       end
 
@@ -261,7 +372,7 @@ module Bosh::Director
           expect(problem_register).to_not receive(:problem_found)
           vm_scanner.scan
           expect(vm_scanner.agent_disks['fake-disk-cid']).to be_nil
-          expect(vm_scanner.agent_disks['fake-disk-cid-2']).to eq(['vm-cid'])
+          expect(vm_scanner.agent_disks['fake-disk-cid-2']).to eq(['vm-cid-0'])
         end
       end
     end

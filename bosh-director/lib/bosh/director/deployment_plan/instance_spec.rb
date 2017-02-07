@@ -12,52 +12,46 @@ module Bosh::Director
       def self.create_from_instance_plan(instance_plan)
         instance = instance_plan.instance
         deployment_name = instance.deployment_model.name
-        job = instance_plan.desired_instance.job
+        instance_group = instance_plan.desired_instance.instance_group
         instance_plan = instance_plan
         dns_manager = DnsManagerProvider.create
 
         spec = {
           'deployment' => deployment_name,
-          'job' => job.spec,
+          'job' => instance_group.spec,
           'index' => instance.index,
           'bootstrap' => instance.bootstrap?,
+          'lifecycle' => instance_group.lifecycle,
           'name' => instance.job_name,
           'id' => instance.uuid,
           'az' => instance.availability_zone_name,
           'networks' => instance_plan.network_settings_hash,
-          'vm_type' => job.vm_type.spec,
-          'stemcell' => job.stemcell.spec,
-          'env' => job.env.spec,
-          'packages' => job.package_spec,
-          'properties' => job.properties,
+          'vm_type' => instance_group.vm_type.spec,
+          'stemcell' => instance_group.stemcell.spec,
+          'env' => instance_group.env.spec,
+          'packages' => instance_group.package_spec,
+          'properties' => instance_group.properties,
           'properties_need_filtering' => true,
           'dns_domain_name' => dns_manager.dns_domain_name,
-          'links' => job.link_spec,
+          'links' => instance_group.resolved_links,
           'address' => instance_plan.network_settings.network_address,
-          'update' => job.update_spec,
+          'update' => instance_group.update_spec,
 
           # nimbus2 stuff - start
-          'passive' => job.passive,
-          'drbd_enabled' => job.drbd_enabled,
-          'drbd_force_master' => job.drbd_force_master,
-          'drbd_replication_node1' => job.drbd_replication_node1,
-          'drbd_replication_node2' => job.drbd_replication_node2,
-          'drbd_replication_type' => job.drbd_replication_type,
-          'drbd_secret' => job.drbd_secret,
-          'dns_register_on_start' => job.dns_register_on_start,
+          'passive' => instance_group.passive,
+          'drbd_enabled' => instance_group.drbd_enabled,
+          'drbd_force_master' => instance_group.drbd_force_master,
+          'drbd_replication_node1' => instance_group.drbd_replication_node1,
+          'drbd_replication_node2' => instance_group.drbd_replication_node2,
+          'drbd_replication_type' => instance_group.drbd_replication_type,
+          'drbd_secret' => instance_group.drbd_secret,
+          'dns_register_on_start' => instance_group.dns_register_on_start,
           # nimbus2 stuff - end
         }
 
-        if job.persistent_disk_type
-          # supply both for reverse compatibility with old agent
-          spec['persistent_disk'] = job.persistent_disk_type.disk_size
-          # old agents will ignore this pool
-          # keep disk pool for backwards compatibility
-          spec['persistent_disk_pool'] = job.persistent_disk_type.spec
-          spec['persistent_disk_type'] = job.persistent_disk_type.spec
-        else
-          spec['persistent_disk'] = 0
-        end
+        disk_spec = instance_group.persistent_disk_collection.generate_spec
+
+        spec.merge!(disk_spec)
 
         new(spec, instance)
       end
@@ -65,10 +59,12 @@ module Bosh::Director
       def initialize(full_spec, instance)
         @full_spec = full_spec
         @instance = instance
+
+        @config_server_client_factory = ConfigServer::ClientFactory.create(Config.logger)
       end
 
       def as_template_spec
-        TemplateSpec.new(full_spec).spec
+        TemplateSpec.new(full_spec, @config_server_client_factory).spec
       end
 
       def as_apply_spec
@@ -108,9 +104,10 @@ module Bosh::Director
     end
 
     class TemplateSpec
-      def initialize(full_spec)
+      def initialize(full_spec, config_server_client_factory)
         @full_spec = full_spec
         @dns_manager = DnsManagerProvider.create
+        @config_server_client_factory = config_server_client_factory
       end
 
       def spec
@@ -123,12 +120,11 @@ module Bosh::Director
           'id',
           'az',
           'networks',
-          'properties',
           'properties_need_filtering',
           'dns_domain_name',
-          'links',
           'persistent_disk',
           'address',
+          'ip',
           # nimbus2 - start
           'passive',
           'drbd_enabled',
@@ -140,20 +136,59 @@ module Bosh::Director
           'dns_register_on_start',
           # nimbus2 - end
         ]
+
+        whitelisted_link_spec_keys = [
+          'instances',
+          'properties'
+        ]
+
         template_hash = @full_spec.select {|k,v| keys.include?(k) }
 
+        template_hash['properties'] = resolve_uninterpolated_values(@full_spec['deployment'], @full_spec['properties'])
+        template_hash['links'] = {}
+
+        @full_spec.fetch('links', {}).each do |link_name, link_spec|
+          interpolated_values = resolve_uninterpolated_values(link_spec['deployment_name'], link_spec)
+          template_hash['links'][link_name] = interpolated_values.select {|k,v| whitelisted_link_spec_keys.include?(k) }
+        end
+
         networks_hash = template_hash['networks']
-        networks_hash_with_dns = networks_hash.each_pair do |network_name, network_settings|
+
+        ip = nil
+        modified_networks_hash = networks_hash.each_pair do |network_name, network_settings|
           if @full_spec['job'] != nil
             settings_with_dns = network_settings.merge({'dns_record_name' => @dns_manager.dns_record_name(@full_spec['index'], @full_spec['job']['name'], network_name, @full_spec['deployment'])})
             networks_hash[network_name] = settings_with_dns
           end
+
+          defaults = network_settings['default'] || []
+
+          if defaults.include?('addressable') || (!ip && defaults.include?('gateway'))
+            ip = network_settings['ip']
+          end
+
+          if network_settings['type'] == 'dynamic'
+            # Templates may get rendered before we know dynamic IPs from the Agent.
+            # Use valid IPs so that templates don't have to write conditionals around nil values.
+            networks_hash[network_name]['ip'] ||= '127.0.0.1'
+            networks_hash[network_name]['netmask'] ||= '127.0.0.1'
+            networks_hash[network_name]['gateway'] ||= '127.0.0.1'
+          end
         end
 
         template_hash.merge({
+        'ip' => ip,
         'resource_pool' => @full_spec['vm_type']['name'],
-        'networks' => networks_hash_with_dns
+        'networks' => modified_networks_hash
         })
+      end
+
+      private
+
+      def resolve_uninterpolated_values(deployment_name, to_be_resolved_hash)
+        # TODO: Don't Create a client every single time! refactor!!!
+        config_server_client = @config_server_client_factory.create_client(deployment_name)
+        config_server_client.interpolate(to_be_resolved_hash)
       end
     end
 

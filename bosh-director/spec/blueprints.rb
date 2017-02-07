@@ -15,6 +15,7 @@ Sham.define do
   stemcell_cid     { |index| "stemcell-cid-#{index}" }
   stemcell_os      { |index| "stemcell-os-#{index}" }
   stemcell_version { |index| "stemcell-version-#{index}" }
+  instance_id      { |index| "instance-id-#{index}" }
   blobstore_id     { |index| "blobstore-id-#{index}" }
   agent_id         { |index| "agent-id-#{index}" }
   uuid             { |index| "uuid-#{index}" }
@@ -32,7 +33,7 @@ Sham.define do
                      octet = index % 255
                      "#{octet}.#{octet}.#{octet}.in-addr.arpa"
                    }
-  lock_name     { |index| "lock-resource-entity#{index}"}
+  lock_name     { |index| "lock-resource-entity#{index}" }
 end
 
 module Bosh::Director::Models
@@ -193,6 +194,22 @@ module Bosh::Director::Models
     object_name { Sham.object_name }
     user        { Sham.username }
     timestamp   { Time.now }
+  end
+
+  Team.blueprint do
+    name      { Sham.name }
+  end
+
+  LocalDnsBlob.blueprint do
+    blobstore_id { Sham.blobstore_id }
+    sha1         { Sham.sha1 }
+    created_at   { Time.new }
+  end
+
+  LocalDnsRecord.blueprint do
+    name        { Sham.name }
+    ip          { Sham.ip }
+    instance_id { Sham.instance_id }
   end
 
   module Dns

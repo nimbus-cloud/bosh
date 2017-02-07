@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 describe Bosh::Director::JobUpdater do
-  subject(:job_updater) { described_class.new(deployment_plan, job, links_resolver, disk_manager) }
+  subject(:job_updater) { described_class.new(deployment_plan, job, disk_manager) }
   let(:disk_manager) { BD::DiskManager.new(cloud, logger)}
   let(:cloud) { instance_double(Bosh::Clouds) }
 
@@ -14,7 +14,7 @@ describe Bosh::Director::JobUpdater do
     }) }
 
   let(:job) do
-    instance_double('Bosh::Director::DeploymentPlan::Job', {
+    instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', {
       name: 'job_name',
       update: update_config,
       unneeded_instances: [],
@@ -22,14 +22,9 @@ describe Bosh::Director::JobUpdater do
     })
   end
 
-  let(:links_resolver) { instance_double('Bosh::Director::DeploymentPlan::LinksResolver') }
-
-  let(:update_config) do
-    instance_double('Bosh::Director::DeploymentPlan::UpdateConfig', {
-      canaries: 1,
-      max_in_flight: 1,
-    })
-  end
+  let(:update_config) {
+    BD::DeploymentPlan::UpdateConfig.new({'canaries' => 1, 'max_in_flight' => 1, 'canary_watch_time' => '1000-2000', 'update_watch_time' => '1000-2000'})
+  }
 
   describe 'update' do
     let(:needed_instance_plans) { [] }
@@ -37,7 +32,6 @@ describe Bosh::Director::JobUpdater do
       allow(job).to receive(:needed_instance_plans).and_return(needed_instance_plans)
       allow(job).to receive(:did_change=)
     }
-    before {allow(links_resolver).to receive(:resolve)}
 
     let(:update_error) { RuntimeError.new('update failed') }
 
@@ -52,6 +46,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: nil
         )
         allow(instance_plan).to receive(:changed?) { false }
+        allow(instance_plan).to receive(:should_be_ignored?) { false }
         allow(instance_plan).to receive(:changes) { [] }
         allow(instance_plan).to receive(:persist_current_spec)
         [instance_plan]
@@ -71,6 +66,29 @@ describe Bosh::Director::JobUpdater do
       end
     end
 
+    context 'when instance plans should be ignored' do
+      let(:needed_instance_plans) do
+        instance_plan = BD::DeploymentPlan::InstancePlan.new(
+            instance: instance_double(BD::DeploymentPlan::Instance),
+            desired_instance: BD::DeploymentPlan::DesiredInstance.new(nil, 'started', nil),
+            existing_instance: nil
+        )
+        allow(instance_plan).to receive(:changed?) { true }
+        allow(instance_plan).to receive(:should_be_ignored?) { true }
+        allow(instance_plan).to receive(:changes) { [] }
+        allow(instance_plan).to receive(:persist_current_spec)
+        [instance_plan]
+      end
+
+      it 'should apply the insatnce plan' do
+        job_updater.update
+
+        check_event_log do |events|
+          expect(events).to be_empty
+        end
+      end
+    end
+
     context 'when job needs to be updated' do
       let(:canary_model) { instance_double('Bosh::Director::Models::Instance', to_s: "job_name/fake_uuid (1)") }
       let(:changed_instance_model) { instance_double('Bosh::Director::Models::Instance', to_s: "job_name/fake_uuid (2)") }
@@ -86,6 +104,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: nil
         )
         allow(plan).to receive(:changed?) { true }
+        allow(plan).to receive(:should_be_ignored?) { false }
         allow(plan).to receive(:changes) { ['dns']}
         plan
       end
@@ -96,6 +115,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: BD::Models::Instance.make
         )
         allow(plan).to receive(:changed?) { true }
+        allow(plan).to receive(:should_be_ignored?) { false }
         allow(plan).to receive(:changes) { ['network']}
         plan
       end
@@ -106,6 +126,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: BD::Models::Instance.make
         )
         allow(plan).to receive(:changed?) { false }
+        allow(plan).to receive(:should_be_ignored?) { false }
         allow(plan).to receive(:changes) { [] }
         allow(plan).to receive(:persist_current_spec)
         plan
@@ -206,13 +227,12 @@ describe Bosh::Director::JobUpdater do
     end
 
     context 'when there are multiple AZs' do
-      let(:update_config) do
-        instance_double('Bosh::Director::DeploymentPlan::UpdateConfig', {
-          canaries: 1,
-          max_in_flight: 2,
-        })
-      end
+      let(:update_config) {
+        BD::DeploymentPlan::UpdateConfig.new({'canaries' => canaries, 'max_in_flight' => max_in_flight, 'canary_watch_time' => '1000-2000', 'update_watch_time' => '1000-2000'})
+      }
 
+      let (:canaries) { 1 }
+      let (:max_in_flight) { 2 }
       let(:canary_model) { instance_double('Bosh::Director::Models::Instance', to_s: "job_name/fake_uuid (1)") }
       let(:changed_instance_model_1) { instance_double('Bosh::Director::Models::Instance', to_s: "job_name/fake_uuid (2)") }
       let(:changed_instance_model_2) { instance_double('Bosh::Director::Models::Instance', to_s: "job_name/fake_uuid (3)") }
@@ -229,6 +249,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: nil
         )
         allow(plan).to receive(:changed?) { true }
+        allow(plan).to receive(:should_be_ignored?) { false }
         allow(plan).to receive(:changes) { ['dns']}
         plan
       end
@@ -239,6 +260,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: BD::Models::Instance.make
         )
         allow(plan).to receive(:changed?) { true }
+        allow(plan).to receive(:should_be_ignored?) { false }
         allow(plan).to receive(:changes) { ['network']}
         plan
       end
@@ -249,6 +271,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: BD::Models::Instance.make
         )
         allow(plan).to receive(:changed?) { true }
+        allow(plan).to receive(:should_be_ignored?) { false }
         allow(plan).to receive(:changes) { ['network']}
         plan
       end
@@ -259,6 +282,7 @@ describe Bosh::Director::JobUpdater do
           existing_instance: BD::Models::Instance.make
         )
         allow(plan).to receive(:changed?) { true }
+        allow(plan).to receive(:should_be_ignored?) { false }
         allow(plan).to receive(:changes) { ['network']}
         plan
       end
@@ -305,12 +329,49 @@ describe Bosh::Director::JobUpdater do
           end
         end
       end
+
+      context 'when max_in_flight and canaries are specified as percents' do
+        let (:canaries) { '50%' }
+        let (:max_in_flight) { '100%' }
+
+        it 'should understand it' do
+          expect(canary_updater).to receive(:update).with(canary_plan, canary: true)
+          expect(changed_updater).to receive(:update).with(changed_instance_plan_1)
+          expect(changed_updater).to receive(:update).with(changed_instance_plan_2)
+          expect(changed_updater).to receive(:update).with(changed_instance_plan_3)
+
+          job_updater.update
+
+          check_event_log do |events|
+            [
+                updating_stage_event(index: 1, total: 4, task: 'job_name/fake_uuid (1) (canary)', state: 'started'),
+                updating_stage_event(index: 1, total: 4, task: 'job_name/fake_uuid (1) (canary)', state: 'finished'),
+                updating_stage_event(index: 2, total: 4, task: 'job_name/fake_uuid (2)', state: 'started'),
+                updating_stage_event(index: 2, total: 4, task: 'job_name/fake_uuid (2)', state: 'finished'),
+            ].each_with_index do |expected_event, index|
+              expect(events[index]).to include(expected_event)
+            end
+
+            # blocked until next az...
+            last_events = events[3..-1]
+            expected_events = [
+                updating_stage_event(total: 4, task: 'job_name/fake_uuid (3)', state: 'started'),
+                updating_stage_event(total: 4, task: 'job_name/fake_uuid (4)', state: 'started'),
+                updating_stage_event(total: 4, task: 'job_name/fake_uuid (3)', state: 'finished'),
+                updating_stage_event(total: 4, task: 'job_name/fake_uuid (4)', state: 'finished'),
+            ]
+            expected_events.map do |expected_event|
+              expect(last_events.select { |event| same_event?(event, expected_event) }).not_to be_empty
+            end
+          end
+        end
+      end
     end
   end
 
   def updating_stage_event(options)
     events = {
-      'stage' => 'Updating job',
+      'stage' => 'Updating instance',
       'tags' => ['job_name'],
       'total' => options[:total],
       'task' => options[:task],

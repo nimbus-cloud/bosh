@@ -8,26 +8,26 @@ describe Bosh::Director::DeploymentPlan::ManualNetwork do
    manifest_hash['networks'].first['subnets'].first['static'] = static_ips
    manifest_hash
   end
-  let(:manifest) { Bosh::Director::Manifest.new(manifest_hash, nil, nil) }
+  let(:manifest) { Bosh::Director::Manifest.new(manifest_hash, manifest_hash, nil, nil, nil) }
   let(:network_range) { '192.168.1.0/24' }
   let(:static_ips) { [] }
   let(:network_spec) { manifest_hash['networks'].first }
   let(:planner_factory) { BD::DeploymentPlan::PlannerFactory.create(BD::Config.logger) }
   let(:deployment_plan) { planner_factory.create_from_manifest(manifest, nil, nil, {}) }
-  let(:global_network_resolver) { BD::DeploymentPlan::GlobalNetworkResolver.new(deployment_plan) }
+  let(:global_network_resolver) { BD::DeploymentPlan::GlobalNetworkResolver.new(deployment_plan, [], logger) }
   let(:instance_model) { BD::Models::Instance.make }
 
   subject(:manual_network) do
-     BD::DeploymentPlan::ManualNetwork.parse(
-       network_spec,
-       [
-         BD::DeploymentPlan::AvailabilityZone.new('zone_1', {}),
-         BD::DeploymentPlan::AvailabilityZone.new('zone_2', {})
-       ],
-       global_network_resolver,
-       logger
-     )
-   end
+    BD::DeploymentPlan::ManualNetwork.parse(
+      network_spec,
+      [
+        BD::DeploymentPlan::AvailabilityZone.new('zone_1', {}),
+        BD::DeploymentPlan::AvailabilityZone.new('zone_2', {})
+      ],
+      global_network_resolver,
+      logger
+    )
+  end
 
   before do
     release = Bosh::Director::Models::Release.make(name: 'bosh-release')
@@ -51,7 +51,7 @@ describe Bosh::Director::DeploymentPlan::ManualNetwork do
         manifest['networks'].first['subnets'] << Bosh::Spec::Deployments.subnet({
             'range' => '192.168.1.0/28',
           })
-        Bosh::Director::Manifest.new(manifest, nil, nil)
+        Bosh::Director::Manifest.new(manifest, manifest, nil, nil, nil)
       end
 
       it 'should raise an error' do

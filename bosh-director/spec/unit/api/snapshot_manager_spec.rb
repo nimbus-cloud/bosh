@@ -40,7 +40,7 @@ module Bosh::Director
     describe '#create_deployment_snapshot_task' do
       it 'enqueues a SnapshotDeployment job' do
         expect(job_queue).to receive(:enqueue).with(
-          username, Jobs::SnapshotDeployment, 'snapshot deployment', [deployment.name, options], deployment.name
+          username, Jobs::SnapshotDeployment, 'snapshot deployment', [deployment.name, options], deployment
         ).and_return(task)
 
         expect(subject.create_deployment_snapshot_task(username, deployment, options)).to eq(task)
@@ -62,7 +62,7 @@ module Bosh::Director
     describe '#delete_deployment_snapshots_task' do
       it 'enqueues a DeleteDeploymentSnapshots job' do
         expect(job_queue).to receive(:enqueue).with(
-          username, Jobs::DeleteDeploymentSnapshots, 'delete deployment snapshots', [deployment.name], deployment.name
+          username, Jobs::DeleteDeploymentSnapshots, 'delete deployment snapshots', [deployment.name], deployment
         ).and_return(task)
 
         expect(subject.delete_deployment_snapshots_task(username, deployment)).to eq(task)
@@ -118,7 +118,7 @@ module Bosh::Director
     end
 
     describe 'class methods' do
-      let(:config) { Psych.load_file(asset('test-director-config.yml')) }
+      let(:config) { YAML.load_file(asset('test-director-config.yml')) }
 
       before do
         Config.configure(config)

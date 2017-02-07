@@ -55,17 +55,19 @@ describe 'cli: deployment process', type: :integration do
     expect(output).to include('Disk CID')
     expect(output).to include('Agent ID')
     expect(output).to include('Resurrection')
+    expect(output).to include('Ignore')
+    expect(output.scan(/\| xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \| active       \| false  \|/).count).to eq(3)
 
     output = bosh_runner.run('instances --dns')
     expect(scrub_random_ids(output)).to match_output '
       +--------------------------------------------------+---------+--------+---------+-------------+-----------------------------------------------------------+
       | Instance                                         | State   | AZ     | VM Type | IPs         | DNS A records                                             |
       +--------------------------------------------------+---------+--------+---------+-------------+-----------------------------------------------------------+
-      | foobar/0 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)* | running | zone-1 | a       | 192.168.1.2 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.foobar.a.simple.bosh |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (0)* | running | zone-1 | a       | 192.168.1.2 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.foobar.a.simple.bosh |
       |                                                  |         |        |         |             | 0.foobar.a.simple.bosh                                    |
-      | foobar/1 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)  | running | zone-2 | a       | 192.168.2.2 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.foobar.a.simple.bosh |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (1)  | running | zone-2 | a       | 192.168.2.2 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.foobar.a.simple.bosh |
       |                                                  |         |        |         |             | 1.foobar.a.simple.bosh                                    |
-      | foobar/2 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)  | running | zone-3 | a       | 192.168.3.2 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.foobar.a.simple.bosh |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (2)  | running | zone-3 | a       | 192.168.3.2 | xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.foobar.a.simple.bosh |
       |                                                  |         |        |         |             | 2.foobar.a.simple.bosh                                    |
       +--------------------------------------------------+---------+--------+---------+-------------+-----------------------------------------------------------+
 
@@ -77,17 +79,17 @@ describe 'cli: deployment process', type: :integration do
       +--------------------------------------------------+---------+--------+---------+-------------+
       | Instance                                         | State   | AZ     | VM Type | IPs         |
       +--------------------------------------------------+---------+--------+---------+-------------+
-      | foobar/0 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)* | running | zone-1 | a       | 192.168.1.2 |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (0)* | running | zone-1 | a       | 192.168.1.2 |
       |   process-1                                      | running |        |         |             |
       |   process-2                                      | running |        |         |             |
       |   process-3                                      | failing |        |         |             |
       +--------------------------------------------------+---------+--------+---------+-------------+
-      | foobar/1 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)  | running | zone-2 | a       | 192.168.2.2 |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (1)  | running | zone-2 | a       | 192.168.2.2 |
       |   process-1                                      | running |        |         |             |
       |   process-2                                      | running |        |         |             |
       |   process-3                                      | failing |        |         |             |
       +--------------------------------------------------+---------+--------+---------+-------------+
-      | foobar/2 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)  | running | zone-3 | a       | 192.168.3.2 |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (2)  | running | zone-3 | a       | 192.168.3.2 |
       |   process-1                                      | running |        |         |             |
       |   process-2                                      | running |        |         |             |
       |   process-3                                      | failing |        |         |             |
@@ -99,13 +101,13 @@ describe 'cli: deployment process', type: :integration do
       +--------------------------------------------------+---------+--------+---------+-------------+
       | Instance                                         | State   | AZ     | VM Type | IPs         |
       +--------------------------------------------------+---------+--------+---------+-------------+
-      | foobar/0 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)* | running | zone-1 | a       | 192.168.1.2 |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (0)* | running | zone-1 | a       | 192.168.1.2 |
       |   process-3                                      | failing |        |         |             |
       +--------------------------------------------------+---------+--------+---------+-------------+
-      | foobar/1 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)  | running | zone-2 | a       | 192.168.2.2 |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (1)  | running | zone-2 | a       | 192.168.2.2 |
       |   process-3                                      | failing |        |         |             |
       +--------------------------------------------------+---------+--------+---------+-------------+
-      | foobar/2 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)  | running | zone-3 | a       | 192.168.3.2 |
+      | foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (2)  | running | zone-3 | a       | 192.168.3.2 |
       |   process-3                                      | failing |        |         |             |
       +--------------------------------------------------+---------+--------+---------+-------------+
     '

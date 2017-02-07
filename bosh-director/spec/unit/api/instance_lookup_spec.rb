@@ -6,9 +6,11 @@ module Bosh::Director
     describe InstanceLookup do
       subject(:instance_lookup) { InstanceLookup.new }
       let!(:instance) { Models::Instance.make(deployment: deployment, job: job_name, index: job_index) }
+      let!(:another_instance) { Models::Instance.make(deployment: deployment, job: job_name, index: another_job_index) }
       let(:deployment) { Models::Deployment.make(name: 'foobar') }
       let(:job_name) { 'my_job' }
       let(:job_index) { '6' }
+      let(:another_job_index) { '0' }
 
       describe '.by_id' do
         it 'finds instance for id' do
@@ -18,8 +20,8 @@ module Bosh::Director
         context 'no instance exists for id' do
           it 'raises' do
             expect {
-              instance_lookup.by_id('badId')
-            }.to raise_error(InstanceNotFound, "Instance badId doesn't exist")
+              instance_lookup.by_id(999999)
+            }.to raise_error(InstanceNotFound, "Instance 999999 doesn't exist")
           end
         end
       end
@@ -49,8 +51,12 @@ module Bosh::Director
 
       describe '.by_filter' do
         it 'finds only instances that match sql filter' do
-          expect(instance_lookup.by_filter(id: instance.id)).to eq([instance])
+          expect(instance_lookup.by_filter(id: instance.id).all).to eq([instance])
         end
+
+        # it 'finds only instances that are not excluded' do
+        #   expect(instance_lookup.by_filter({job: instance.job}, {id: another_instance.id}).all).to eq([instance])
+        # end
 
         context 'no instances exist for sql filter' do
           it 'raises' do
@@ -63,7 +69,7 @@ module Bosh::Director
 
       describe '.find_all' do
         it 'pulls all instances' do
-          expect(instance_lookup.find_all).to eq [instance]
+          expect(instance_lookup.find_all).to eq [instance, another_instance]
         end
       end
 

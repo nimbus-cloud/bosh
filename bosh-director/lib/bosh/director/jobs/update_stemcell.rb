@@ -9,6 +9,7 @@ module Bosh::Director
       UPDATE_STEPS = 5
 
       @queue = :normal
+      @local_fs = true
 
       def self.job_type
         :update_stemcell
@@ -58,7 +59,7 @@ module Bosh::Director
 
         track_and_log("Verifying stemcell manifest") do
           stemcell_manifest_file = File.join(stemcell_dir, "stemcell.MF")
-          stemcell_manifest = Psych.load_file(stemcell_manifest_file)
+          stemcell_manifest = YAML.load_file(stemcell_manifest_file)
 
           @name = safe_property(stemcell_manifest, "name", :class => String)
           @operating_system = safe_property(stemcell_manifest, "operating_system", :class => String, :optional => true, :default => @name)
@@ -80,7 +81,6 @@ module Bosh::Director
         track_and_log("Checking if this stemcell already exists") do
           begin
             stemcell = @stemcell_manager.find_by_name_and_version @name, @version
-            raise StemcellAlreadyExists, "Stemcell '#{@name}/#{@version}' already exists" unless @fix
           rescue StemcellNotFound => e
             stemcell = Models::Stemcell.new
             stemcell.name = @name
@@ -90,13 +90,17 @@ module Bosh::Director
           end
         end
 
-        track_and_log("Uploading stemcell #{@name}/#{@version} to the cloud") do
-          stemcell.cid = @cloud.create_stemcell(@stemcell_image, @cloud_properties)
-          logger.info("Cloud created stemcell: #{stemcell.cid}")
-        end
+        if @fix or !stemcell.cid
+          track_and_log("Uploading stemcell #{@name}/#{@version} to the cloud") do
+            stemcell.cid = @cloud.create_stemcell(@stemcell_image, @cloud_properties)
+            logger.info("Cloud created stemcell: #{stemcell.cid}")
+          end
 
-        track_and_log("Save stemcell #{@name}/#{@version} (#{stemcell.cid})") do
-          stemcell.save
+          track_and_log("Save stemcell #{@name}/#{@version} (#{stemcell.cid})") do
+            stemcell.save
+          end
+        else
+          logger.info("Skipping stemcell upload (stemcell already exists)")
         end
 
         "/stemcells/#{stemcell.name}/#{stemcell.version}"

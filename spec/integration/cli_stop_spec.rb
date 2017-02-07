@@ -46,27 +46,28 @@ describe 'stop command', type: :integration do
           output = bosh_runner.run("stop foobar #{instance_uuid}")
           expect(output).to include("foobar/#{instance_uuid} stopped, VM(s) still running")
         }.to change { vm_states }
-                 .from({
-                           'another-job/0' => 'running',
-                           'foobar/0' => 'stopped',
-                           'foobar/1' => 'running',
-                           'foobar/2' => 'running'
-                       })
-                 .to({
-                         'another-job/0' => 'running',
-                         'foobar/0' => 'stopped',
-                         'foobar/1' => 'stopped',
-                         'foobar/2' => 'running'
-                     })
+          .from({
+              'another-job/0' => 'running',
+              'foobar/0' => 'stopped',
+              'foobar/1' => 'running',
+              'foobar/2' => 'running'
+            })
+          .to({
+              'another-job/0' => 'running',
+              'foobar/0' => 'stopped',
+              'foobar/1' => 'stopped',
+              'foobar/2' => 'running'
+          })
 
         output = bosh_runner.run('events')
         parser = Support::TableHelpers::Parser.new(scrub_event_time(scrub_random_cids(scrub_random_ids(output))))
         expect(parser.data).to include(
-          {'ID' => /[0-9]{1,3} <- [0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'update', 'Object type' => 'deployment', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'simple', 'Dep' => 'simple', 'Inst' => '-', 'Context' => '-'},
+          {'ID' => /[0-9]{1,3} <- [0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'update', 'Object type' => 'deployment', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'simple', 'Dep' => 'simple', 'Inst' => '-', 'Context' => 'before: {"releases"=>["bosh-release/0+dev.1"], "stemcells"=>["ubuntu-stemcell/1"]},'},
+          {'ID' => '', 'Time' => '', 'User' => '', 'Action' => '', 'Object type' => '', 'Task' => '', 'Object ID' => '', 'Dep' => '', 'Inst' => '', 'Context' => 'after: {"releases"=>["bosh-release/0+dev.1"], "stemcells"=>["ubuntu-stemcell/1"]}'},
           {'ID' => /[0-9]{1,3} <- [0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'stop', 'Object type' => 'instance', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Dep' => 'simple', 'Inst' => 'foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Context' => '-'},
           {'ID' => /[0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'stop', 'Object type' => 'instance', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Dep' => 'simple', 'Inst' => 'foobar/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 'Context' => '-'},
-          {'ID' => /[0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'update', 'Object type' => 'deployment', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'simple', 'Dep' => 'simple', 'Inst' => '-', 'Context' => '-'},
-                               )
+          {'ID' => /[0-9]{1,3}/, 'Time' => 'xxx xxx xx xx:xx:xx UTC xxxx', 'User' => 'test', 'Action' => 'update', 'Object type' => 'deployment', 'Task' => /[0-9]{1,3}/, 'Object ID' => 'simple', 'Dep' => 'simple', 'Inst' => '-', 'Context' => '-'}
+        )
       end
     end
 

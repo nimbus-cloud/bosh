@@ -7,6 +7,7 @@ require 'bosh/dev/sandbox/services/connection_proxy_service'
 require 'bosh/dev/sandbox/workspace'
 require 'common/thread_pool'
 require 'bosh/dev/sandbox/services/uaa_service'
+require 'bosh/dev/sandbox/services/config_server_service'
 require 'parallel_tests/tasks'
 
 namespace :spec do
@@ -15,6 +16,12 @@ namespace :spec do
     task :agent => :install_dependencies do
       sh('go/src/github.com/cloudfoundry/bosh-agent/bin/build')
       run_integration_specs
+    end
+
+    desc 'Run BOSH gocli integration tests against a local sandbox'
+    task :gocli => :install_dependencies do
+      sh('go/src/github.com/cloudfoundry/bosh-agent/bin/build')
+      run_integration_specs(spec_path: 'spec/gocli/integration')
     end
 
     desc 'Run health monitor integration tests against a local sandbox'
@@ -38,6 +45,10 @@ namespace :spec do
 
         unless ENV['SKIP_UAA'] == 'true'
           Bosh::Dev::Sandbox::UaaService.install
+        end
+
+        unless ENV['SKIP_CONFIG_SERVER'] == 'true'
+          Bosh::Dev::Sandbox::ConfigServerService.install
         end
       end
     end
@@ -64,8 +75,10 @@ namespace :spec do
       options[:count] = num_processes if num_processes
       options[:group] = ENV['GROUP'] if ENV['GROUP']
 
-      puts 'Launching parallel execution of spec/integration'
-      run_in_parallel('spec/integration', options)
+      spec_path = options.fetch(:spec_path, 'spec/integration')
+
+      puts "Launching parallel execution of #{spec_path}"
+      run_in_parallel(spec_path, options)
     end
 
     def run_in_parallel(test_path, options={})
@@ -86,6 +99,8 @@ namespace :spec do
   end
 
   task :integration => %w(spec:integration:agent)
+
+  task :integration_gocli => %w(spec:integration:gocli)
 
   def unit_exec(build, log_file = nil)
     command = unit_cmd(build, log_file)
@@ -125,7 +140,7 @@ namespace :spec do
 
   namespace :unit do
     desc 'Run all unit tests for ruby components'
-    task ruby: %w(rubocop) do
+    task :ruby do
       trap('INT') { exit }
       log_dir = Dir.mktmpdir
       puts "Logging spec results in #{log_dir}"
@@ -171,26 +186,6 @@ namespace :spec do
     RSpec::Core::RakeTask.new(:aws_bootstrap) do |t|
       t.pattern = 'spec/external/aws_bootstrap_spec.rb'
       t.rspec_opts = %w(--format documentation --color)
-    end
-  end
-
-  namespace :system do
-    desc 'Run system (BATs) tests (deploys microbosh)'
-    task :micro, [:infrastructure_name, :hypervisor_name, :operating_system_name, :operating_system_version, :net_type, :agent_name, :light, :disk_format] do |_, args|
-      require 'bosh/dev/bat_helper'
-      Bosh::Dev::BatHelper.for_rake_args(args).deploy_microbosh_and_run_bats
-    end
-
-    desc 'Run system (BATs) tests (uses existing microbosh)'
-    task :existing_micro, [:infrastructure_name, :hypervisor_name, :operating_system_name, :operating_system_version, :net_type, :agent_name, :light, :disk_format] do |_, args|
-      require 'bosh/dev/bat_helper'
-      Bosh::Dev::BatHelper.for_rake_args(args).run_bats
-    end
-
-    desc 'Deploy microbosh for system (BATs) tests'
-    task :deploy_micro, [:infrastructure_name, :hypervisor_name, :operating_system_name, :operating_system_version, :net_type, :agent_name, :light, :disk_format] do |_, args|
-      require 'bosh/dev/bat_helper'
-      Bosh::Dev::BatHelper.for_rake_args(args).deploy_bats_microbosh
     end
   end
 end

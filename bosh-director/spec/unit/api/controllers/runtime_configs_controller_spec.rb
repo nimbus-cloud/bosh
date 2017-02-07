@@ -6,10 +6,9 @@ module Bosh::Director
   describe Api::Controllers::RuntimeConfigsController do
     include Rack::Test::Methods
 
-    let(:test_config) { Psych.load(spec_asset('test-director-config.yml')) }
     subject(:app) { Api::Controllers::RuntimeConfigsController.new(config) }
     let(:config) do
-      config = Config.load_hash(test_config)
+      config = Config.load_hash(SpecHelper.spec_get_director_config)
       identity_provider = Support::TestIdentityProvider.new(config.get_uuid_provider)
       allow(config).to receive(:identity_provider).and_return(identity_provider)
       config
@@ -20,7 +19,7 @@ module Bosh::Director
         before { authorize('admin', 'admin') }
 
         it 'creates a new runtime config' do
-          properties = Psych.dump(Bosh::Spec::Deployments.simple_runtime_config)
+          properties = YAML.dump(Bosh::Spec::Deployments.simple_runtime_config)
           expect {
             post '/', properties, {'CONTENT_TYPE' => 'text/yaml'}
           }.to change(Bosh::Director::Models::RuntimeConfig, :count).from(0).to(1)
@@ -47,7 +46,7 @@ module Bosh::Director
         end
 
         it 'creates a new event' do
-          properties = Psych.dump(Bosh::Spec::Deployments.simple_runtime_config)
+          properties = YAML.dump(Bosh::Spec::Deployments.simple_runtime_config)
           expect {
             post '/', properties, {'CONTENT_TYPE' => 'text/yaml'}
           }.to change(Bosh::Director::Models::Event, :count).from(0).to(1)
@@ -74,7 +73,7 @@ module Bosh::Director
         before { basic_authorize 'reader', 'reader' }
 
         it 'denies access' do
-          expect(post('/', Psych.dump(Bosh::Spec::Deployments.simple_runtime_config), {'CONTENT_TYPE' => 'text/yaml'}).status).to eq(401)
+          expect(post('/', YAML.dump(Bosh::Spec::Deployments.simple_runtime_config), {'CONTENT_TYPE' => 'text/yaml'}).status).to eq(401)
         end
       end
     end

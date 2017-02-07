@@ -5,7 +5,7 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
 
   let(:deployment_plan) do
     planner_factory = Bosh::Director::DeploymentPlan::PlannerFactory.create(logger)
-    manifest = Bosh::Director::Manifest.new(deployment_manifest, nil, nil)
+    manifest = Bosh::Director::Manifest.load_from_hash(deployment_manifest, nil, nil, {:resolve_interpolation => false})
     planner = planner_factory.create_from_manifest(manifest, nil, nil, {})
     planner.bind_models
     planner
@@ -40,7 +40,7 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
             {'name' => 'mysql-template',
              'release' => 'fake-release',
              'provides' => {'db' => {'as' => 'db'}},
-             "properties" => {'mysql' => nil}
+             'properties' => {'mysql' => nil}
             }
           ],
           'resource_pool' => 'fake-resource-pool',
@@ -107,7 +107,7 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
   let(:logger) { Logging::Logger.new('TestLogger') }
 
   let(:api_server_job) do
-    deployment_plan.job('api-server')
+    deployment_plan.instance_group('api-server')
   end
 
   before do
@@ -115,7 +115,6 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
 
     Bosh::Director::Models::Stemcell.make(name: 'fake-stemcell', version: 'fake-stemcell-version')
 
-    allow(Bosh::Director::Config).to receive(:cloud).and_return(nil)
     Bosh::Director::Config.dns = {'address' => 'fake-dns-address'}
 
     release_model = Bosh::Director::Models::Release.make(name: 'fake-release')
@@ -160,44 +159,48 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
           instance1 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 0).first
           instance2 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 1).first
 
-          expect(api_server_job.link_spec).to eq(
-            {"db" => {"networks" => ["fake-manual-network", "fake-dynamic-network"],
-                      "properties" => {"mysql" => nil},
-                      "instances" => [
-                          {"name" => "mysql",
-                           "index" => 0,
-                           "bootstrap" => true,
-                           "id" => instance1.uuid,
-                           "az" => nil,
-                           "address" => "127.0.0.3",
-                           },
+          spec = {
+            'deployment_name' => api_server_job.deployment_name,
+            "networks" => ["fake-manual-network", "fake-dynamic-network"],
+            "properties" => {"mysql" => nil},
+            "instances" => [
+              {
+                "name" => "mysql",
+                "index" => 0,
+                "bootstrap" => true,
+                "id" => instance1.uuid,
+                "az" => nil,
+                "address" => "127.0.0.3",
+              },
+              {
+                "name" => "mysql",
+                "index" => 1,
+                "bootstrap" => false,
+                "id" => instance2.uuid,
+                "az" => nil,
+                "address" => "127.0.0.4",
+              }
+            ]
+          }
 
-                          {"name" => "mysql",
-                           "index" => 1,
-                           "bootstrap" => false,
-                           "id" => instance2.uuid,
-                           "az" => nil, "address" => "127.0.0.4",
-                           }
-                      ]
-            }})
+          expect(api_server_job.resolved_links).to eq({"db" => spec})
         end
       end
     end
 
     context 'when job consumes link from another deployment' do
       let(:links) { {'db' => {"from" => 'db', 'deployment' => 'other-deployment'}} }
+      let(:manifest) { Bosh::Director::Manifest.load_from_hash(other_deployment_manifest, nil, nil, {:resolve_interpolation => false}) }
+      let(:other_deployment_manifest) {generate_deployment_manifest('other-deployment', links, ['127.0.0.4', '127.0.0.5'])}
 
       context 'when another deployment has link source' do
         before do
-          other_deployment_manifest = generate_deployment_manifest('other-deployment', links, ['127.0.0.4', '127.0.0.5'])
-
           planner_factory = Bosh::Director::DeploymentPlan::PlannerFactory.create(logger)
-          manifest = Bosh::Director::Manifest.new(other_deployment_manifest, nil, nil)
           deployment_plan = planner_factory.create_from_manifest(manifest, nil, nil, {})
           deployment_plan.bind_models
 
           links_resolver = described_class.new(deployment_plan, logger)
-          mysql_job = deployment_plan.job('mysql')
+          mysql_job = deployment_plan.instance_group('mysql')
           links_resolver.resolve(mysql_job)
 
           deployment_plan.persist_updates!
@@ -208,30 +211,31 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
           instance1 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 0).first
           instance2 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 1).first
 
-          expect(api_server_job.link_spec).to eq({
-                'db' => {
-                  'networks' => ['fake-manual-network', 'fake-dynamic-network'],
-                  "properties"=>{"mysql"=>nil},
-                  'instances' => [
-                    {
-                      'name' => 'mysql',
-                      'index' => 0,
-                      "bootstrap" => true,
-                      'id' => instance1.uuid,
-                      'az' => nil,
-                      'address' => '127.0.0.4'
-                    },
-                    {
-                      'name' => 'mysql',
-                      'index' => 1,
-                      "bootstrap" => false,
-                      'id' => instance2.uuid,
-                      'az' => nil,
-                      'address' => '127.0.0.5'
-                    }
-                  ]
-                }
-              })
+          spec = {
+            'deployment_name' => other_deployment_manifest['name'],
+            'networks' => ['fake-manual-network', 'fake-dynamic-network'],
+              "properties"=>{"mysql"=>nil},
+              'instances' => [
+              {
+                'name' => 'mysql',
+                'index' => 0,
+                "bootstrap" => true,
+                'id' => instance1.uuid,
+                'az' => nil,
+                'address' => '127.0.0.4'
+              },
+              {
+                'name' => 'mysql',
+                'index' => 1,
+                "bootstrap" => false,
+                'id' => instance2.uuid,
+                'az' => nil,
+                'address' => '127.0.0.5'
+              }
+            ]
+          }
+
+          expect(api_server_job.resolved_links).to eq({'db' => spec})
         end
       end
 
@@ -242,7 +246,7 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
           expect {
             links_resolver.resolve(api_server_job)
           }.to raise_error("Unable to process links for deployment. Errors are:
-   - \"Can't find deployment non-existent\"")
+   - Can't find deployment non-existent")
         end
       end
     end
@@ -273,30 +277,31 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
         instance1 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 0).first
         instance2 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 1).first
 
-        expect(api_server_job.link_spec).to eq({
-              'backup_db' => {
-                'networks' => ['fake-manual-network', 'fake-dynamic-network'],
-                "properties"=>{"mysql"=>nil},
-                'instances' => [
-                  {
-                    'name' => 'mysql',
-                    'index' => 0,
-                    "bootstrap" => true,
-                    'id' => instance1.uuid,
-                    'az' => nil,
-                    'address' => '127.0.0.3',
-                  },
-                  {
-                    'name' => 'mysql',
-                    'index' => 1,
-                    "bootstrap" => false,
-                    'id' => instance2.uuid,
-                    'az' => nil,
-                    'address' => '127.0.0.4',
-                  }
-                ]
-              }
-            })
+        link_spec = {
+          'deployment_name' => api_server_job.deployment_name,
+          'networks' => ['fake-manual-network', 'fake-dynamic-network'],
+          "properties"=>{"mysql"=>nil},
+          'instances' => [
+            {
+              'name' => 'mysql',
+              'index' => 0,
+              "bootstrap" => true,
+              'id' => instance1.uuid,
+              'az' => nil,
+              'address' => '127.0.0.3',
+            },
+            {
+              'name' => 'mysql',
+              'index' => 1,
+              "bootstrap" => false,
+              'id' => instance2.uuid,
+              'az' => nil,
+              'address' => '127.0.0.4',
+            }
+          ]
+        }
+
+        expect(api_server_job.resolved_links).to eq({'backup_db' => link_spec})
       end
     end
 
@@ -305,7 +310,9 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
 
       it 'defaults to current deployment' do
         links_resolver.resolve(api_server_job)
-        expect(api_server_job.link_spec['db']['instances'].first['name']).to eq('mysql')
+        link_spec = api_server_job.resolved_links['db']
+
+        expect(link_spec['instances'].first['name']).to eq('mysql')
       end
     end
 
@@ -316,7 +323,7 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
         expect {
           links_resolver.resolve(api_server_job)
         }.to raise_error("Unable to process links for deployment. Errors are:
-   - \"Can't find deployment non-existant\"")
+   - Can't find deployment non-existant")
       end
     end
 
@@ -328,7 +335,7 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
         expect {
           links_resolver.resolve(api_server_job)
         }.to raise_error("Unable to process links for deployment. Errors are:
-   - \"Can't resolve link 'c' in instance group 'api-server' on job 'api-server-template' in deployment 'fake-deployment'.\"")
+   - Can't resolve link 'c' in instance group 'api-server' on job 'api-server-template' in deployment 'fake-deployment'.")
       end
     end
 
@@ -351,7 +358,8 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
     context 'when there is a cloud config' do
       let(:deployment_plan) do
         planner_factory = Bosh::Director::DeploymentPlan::PlannerFactory.create(logger)
-        manifest = Bosh::Director::Manifest.new(deployment_manifest, cloud_config.manifest, nil)
+        manifest = Bosh::Director::Manifest.load_from_hash(deployment_manifest, cloud_config, nil, {:resolve_interpolation => false})
+
         planner = planner_factory.create_from_manifest(manifest, cloud_config, nil, {})
         planner.bind_models
         planner
@@ -479,30 +487,32 @@ describe Bosh::Director::DeploymentPlan::LinksResolver do
         links_resolver.resolve(api_server_job)
         instance1 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 0).first
         instance2 = Bosh::Director::Models::Instance.where(job: 'mysql', index: 1).first
-        expect(api_server_job.link_spec).to eq({
-              'db' => {
-                'networks' => ['fake-manual-network', 'fake-dynamic-network'],
-                "properties"=>{"mysql"=>nil},
-                'instances' => [
-                  {
-                    'name' => 'mysql',
-                    'index' => 0,
-                    "bootstrap" => true,
-                    'id' => instance1.uuid,
-                    'az' => 'az1',
-                    'address' => '127.0.0.3',
-                  },
-                  {
-                    'name' => 'mysql',
-                    'index' => 1,
-                    "bootstrap" => false,
-                    'id' => instance2.uuid,
-                    'az' => 'az1',
-                    'address' => '127.0.0.4',
-                  }
-                ]
-              }
-            })
+
+        link_spec = {
+          'deployment_name' => api_server_job.deployment_name,
+          'networks' => ['fake-manual-network', 'fake-dynamic-network'],
+          "properties"=>{"mysql"=>nil},
+          'instances' => [
+            {
+              'name' => 'mysql',
+              'index' => 0,
+              "bootstrap" => true,
+              'id' => instance1.uuid,
+              'az' => 'az1',
+              'address' => '127.0.0.3',
+            },
+            {
+              'name' => 'mysql',
+              'index' => 1,
+              "bootstrap" => false,
+              'id' => instance2.uuid,
+              'az' => 'az1',
+              'address' => '127.0.0.4',
+            }
+          ]
+        }
+
+        expect(api_server_job.resolved_links).to eq({ 'db' => link_spec })
       end
     end
   end

@@ -8,7 +8,8 @@ cat > $chroot/var/vcap/bosh/agent.json <<JSON
 {
   "Platform": {
     "Linux": {
-      "DevicePathResolutionType": "virtio"
+      "CreatePartitionIfNoEphemeralDisk": true,
+      "DevicePathResolutionType": "scsi"
     }
   },
   "Infrastructure": {

@@ -1,422 +1,278 @@
-require 'bosh/director/deployment_plan/job_spec_parser'
 require 'bosh/template/property_helper'
 
 module Bosh::Director
   module DeploymentPlan
     class Job
       include Bosh::Template::PropertyHelper
+      include ValidationHelper
 
-      VALID_LIFECYCLE_PROFILES = %w(service errand)
-      DEFAULT_LIFECYCLE_PROFILE = 'service'
+      attr_reader :name
+      attr_reader :release
 
-      # started, stopped and detached are real states
-      # (persisting in DB and reflecting target instance state)
-      # recreate and restart are two virtual states
-      # (both set  target instance state to "started" and set
-      # appropriate instance spec modifiers)
-      VALID_JOB_STATES = %w(started stopped detached recreate restart)
+      attr_reader :model
+      attr_reader :package_models
 
-      # @return [String] Job name
-      attr_accessor :name
+      attr_reader :link_infos
+      attr_reader :properties
 
-      # @return [String] Lifecycle profile
-      attr_accessor :lifecycle
+      # @param [DeploymentPlan::ReleaseVersion] release Release version
+      # @param [String] name Template name
+      def initialize(release, name)
+        @release = release
+        @name = name
+        @model = nil
+        @package_models = []
+        @logger = Config.logger
+        @link_infos = {}
 
-      # @return [String] Job canonical name (mostly for DNS)
-      attr_accessor :canonical_name
-
-      # @return [DiskType] Persistent disk type (or nil)
-      attr_accessor :persistent_disk_type
-
-      # @return [DeploymentPlan::ReleaseVersion] Release this job belongs to
-      attr_accessor :release
-
-      # @return [DeploymentPlan::Stemcell]
-      attr_accessor :stemcell
-
-      # @return [DeploymentPlan::VmType]
-      attr_accessor :vm_type
-
-      # @return [DeploymentPlan::VmExtension]
-      attr_accessor :vm_extensions
-
-      # @return [DeploymentPlan::Env]
-      attr_accessor :env
-
-      attr_accessor :default_network
-
-      # @return [Array<DeploymentPlan::Template] Templates included into the job
-      attr_accessor :templates
-
-      # @return [Hash] Job properties
-      attr_accessor :properties
-
-      # @return [Hash<String, DeploymentPlan::Package] Packages included into
-      #   this job
-      attr_accessor :packages
-
-      # @return [DeploymentPlan::UpdateConfig] Job update settings
-      attr_accessor :update
-
-      # @return [Array<DeploymentPlan::Instance>] All job instances
-      attr_accessor :instances
-
-      # @return [Array<Models::Instance>] List of excess instance models that
-      #   are not needed for current deployment
-      attr_accessor :unneeded_instances
-
-      # @return [String] Expected job state
-      attr_accessor :state
-
-      # @return [Hash<Integer, String>] Individual instance expected states
-      attr_accessor :instance_states
-
-      attr_accessor :availability_zones
-
-      attr_accessor :all_properties
-
-      attr_accessor :networks
-
-      attr_accessor :migrated_from
-
-      attr_accessor :desired_instances
-
-      attr_reader :link_paths
-
-      attr_accessor :did_change
-
-      ### nimbus specific props - start ###
-
-      # @return [String] Nodes passive state
-      attr_accessor :passive
-
-      # @return [Boolean] drbd enabled
-      attr_accessor :drbd_enabled
-
-      # @return [Boolean] drbd force master
-      attr_accessor :drbd_force_master
-
-      # @return [String] drbd replication node1
-      attr_accessor :drbd_replication_node1
-
-      # @return [String] drbd replication node2
-      attr_accessor :drbd_replication_node2
-
-      # @return [String] drbd replication type (A|B|C)
-      attr_accessor :drbd_replication_type
-
-      # @return [String] drbd replication secret (A|B|C)
-      attr_accessor :drbd_secret
-
-      # @return [String] dns name to register on startup
-      attr_accessor :dns_register_on_start
-
-      ### nimbus specific props - end ###
-
-      def self.parse(plan, job_spec, event_log, logger)
-        parser = JobSpecParser.new(plan, event_log, logger)
-        parser.parse(job_spec)
+        # This hash will contain the properties specific to this job,
+        # it will be a hash where the keys are the deployment instance groups name, and
+        # the value of each key will be the properties defined in job
+        # section of the deployment manifest. This way if a job is used
+        # in multiple instance groups, the properties will not be shared across
+        # instance groups
+        @properties = {}
       end
 
-      def initialize(logger)
-        @logger = logger
-
-        @release = nil
-        @templates = []
-        @all_properties = nil # All properties available to job
-        @properties = nil # Actual job properties
-
-        @instances = []
-        @desired_instances = []
-        @unneeded_instances = []
-        @instance_states = {}
-        @default_network = {}
-
-        @packages = {}
-        @link_paths = {}
-        @resolved_links = {}
-        @migrated_from = []
-        @availability_zones = []
-
-        @instance_plans = []
-
-        @did_change = false
-      end
-
-      def self.is_legacy_spec?(job_spec)
-        !job_spec.has_key?("templates")
-      end
-
-      def add_instance_plans(instance_plans)
-        @instance_plans = instance_plans
-      end
-
-      def sorted_instance_plans
-        @sorted_instance_plans ||= InstancePlanSorter.new(@logger)
-                                   .sort(@instance_plans.reject(&:obsolete?))
-      end
-
-      # Takes in a job spec and returns a job spec in the new format, if it
-      # needs to be modified.  The new format has "templates" key, which is an
-      # array with each template's data.  This is used for job collocation,
-      # specifically for the agent's current job spec when compared to the
-      # director's.  We only convert their template to a single array entry
-      # because it should be impossible for the agent to have a job spec with
-      # multiple templates in legacy form.
-      def self.convert_from_legacy_spec(job_spec)
-        return job_spec if !self.is_legacy_spec?(job_spec)
-        template = {
-          "name" => job_spec["template"],
-          "version" => job_spec["version"],
-          "sha1" => job_spec["sha1"],
-          "blobstore_id" => job_spec["blobstore_id"]
-        }
-
-        # Supporting 'template_scoped_properties' for legacy spec is going to be messy.
-        # So we will support this feature if a user want to use legacy spec. If they
-        # want to use properties per template, let them use the regular way of defining
-        # templates, i.e. by using the 'templates' key
-        job_spec['templates'] = [template]
-      end
-
-
-      def obsolete_instance_plans
-        @instance_plans.select(&:obsolete?)
-      end
-
-      def instances # to preserve interface for UpdateStep -- switch to instance_plans eventually
-        needed_instance_plans.map(&:instance)
-      end
-
-      def needed_instance_plans
-        sorted_instance_plans
-      end
-
-      def unneeded_instances
-        obsolete_instance_plans.map(&:instance)
-      end
-
-      # Returns job spec as a Hash. To be used by all instances of the job to
-      # populate agent state.
-      # @return [Hash] Hash representation
-      def spec
-        if @templates.size >= 1
-          first_template = @templates[0]
-          result = {
-            "name" => @name,
-            "templates" => [],
-            # --- Legacy ---
-            "template" => first_template.name,
-            "version" => first_template.version,
-            "sha1" => first_template.sha1,
-            "blobstore_id" => first_template.blobstore_id
-          }
-
-          if first_template.logs
-            result["logs"] = first_template.logs
-          end
-          # --- /Legacy ---
-
-          @templates.each do |template|
-            template_entry = {
-              "name" => template.name,
-              "version" => template.version,
-              "sha1" => template.sha1,
-              "blobstore_id" => template.blobstore_id
-            }
-
-            if template.logs
-              template_entry["logs"] = template.logs
-            end
-            result["templates"] << template_entry
-          end
-          result
-        end
-      end
-
-      def update_spec
-        update.to_hash
-      end
-
-      # Returns package specs for all packages in the job indexed by package
-      # name. To be used by all instances of the job to populate agent state.
-      # @return [Hash<String, Hash>] All package specs indexed by package name
-      def package_spec
-        result = {}
-        @packages.each do |name, package|
-          result[name] = package.spec
-        end
-
-        result.select { |name, _| run_time_dependencies.include? name }
-      end
-
-      def instance(index)
-        @instances[index]
-      end
-
-      # Returns the state state of job instance by its index
-      # @param [Integer] index Instance index
-      # @return [String, nil] Instance state (nil if not specified)
-      def state_for_instance(instance_model)
-        @instance_states[instance_model.uuid] || @instance_states[instance_model.index.to_s] || @state
-      end
-
-      # Registers compiled package with this job.
-      # @param [Models::CompiledPackage] compiled_package_model Compiled package
+      # Looks up template model and its package models in DB
       # @return [void]
-      def use_compiled_package(compiled_package_model)
-        compiled_package = CompiledPackage.new(compiled_package_model)
-        @packages[compiled_package.name] = compiled_package
+      def bind_models
+        @model = @release.get_template_model_by_name(@name)
+
+        if @model.nil?
+          raise DeploymentUnknownTemplate, "Can't find job '#{@name}'"
+        end
+
+        @package_models = @model.package_names.map do |name|
+          @release.get_package_model_by_name(name)
+        end
       end
 
-      # Extracts only the properties needed by this job. This is decoupled from
-      # parsing properties because templates need to be bound to their models
-      # before 'bind_properties' is being called (as we persist job template
-      # property definitions in DB).
-      def bind_properties
-        @properties = filter_properties(@all_properties)
+      def bind_existing_model(model)
+        @model = model
       end
 
-      def validate_package_names_do_not_collide!
-        releases_by_package_names = templates
-                                      .reduce([]) { |memo, t| memo + t.model.package_names.product([t.release]) }
-                                      .reduce({}) { |memo, package_name_and_release_version|
-          package_name = package_name_and_release_version.first
-          release_version = package_name_and_release_version.last
-          memo[package_name] ||= Set.new
-          memo[package_name] << release_version
-          memo
-        }
+      # Downloads template blob to a given path
+      # @return [String] Path to downloaded blob
+      def download_blob
+        uuid = SecureRandom.uuid
+        path = File.join(Dir.tmpdir, "template-#{uuid}")
 
-        releases_by_package_names.each do |package_name, releases|
-          if releases.size > 1
-            release1, release2 = releases.to_a[0..1]
-            offending_template1 = templates.find { |t| t.release == release1 }
-            offending_template2 = templates.find { |t| t.release == release2 }
+        @logger.debug("Downloading job '#{@name}' (#{blobstore_id})...")
+        t1 = Time.now
 
-            raise JobPackageCollision,
-              "Package name collision detected in instance group '#{@name}': "\
-                  "job '#{release1.name}/#{offending_template1.name}' depends on package '#{release1.name}/#{package_name}', "\
-                  "job '#{release2.name}/#{offending_template2.name}' depends on '#{release2.name}/#{package_name}'. " +
-                'BOSH cannot currently collocate two packages with identical names from separate releases.'
+        File.open(path, "w") do |f|
+          App.instance.blobstores.blobstore.get(blobstore_id, f)
+        end
+
+        @logger.debug("Job '#{@name}' downloaded to #{path} " +
+                      "(took #{Time.now - t1}s)")
+
+        path
+      end
+
+      # @return [String]
+      def version
+        present_model.version
+      end
+
+      # @return [String]
+      def sha1
+        present_model.sha1
+      end
+
+      # @return [String]
+      def blobstore_id
+        present_model.blobstore_id
+      end
+
+      # @return [Array]
+      def logs
+        present_model.logs
+      end
+
+
+      # return [Array]
+      def model_consumed_links
+        present_model.consumes.to_a.map { |l| TemplateLink.parse('consumes', l) }
+      end
+
+      # return [Array]
+      def model_provided_links
+        present_model.provides.to_a.map { |l| TemplateLink.parse('provides', l) }
+      end
+
+      # return [Array]
+      def consumed_links(instance_group_name)
+        consumes_links_for_instance_group_name(instance_group_name).map do |_, link_info|
+          TemplateLink.parse('consumes', link_info)
+        end
+      end
+
+      # return [Array]
+      def provided_links(instance_group_name)
+        provides_links_for_instance_group_name(instance_group_name).map do |_, link_info|
+          TemplateLink.parse('provides', link_info)
+        end
+      end
+
+      def consumes_links_for_instance_group_name(instance_group_name)
+        links_of_kind_for_instance_group_name(instance_group_name, 'consumes')
+      end
+
+      def provides_links_for_instance_group_name(instance_group_name)
+        links_of_kind_for_instance_group_name(instance_group_name, 'provides')
+      end
+
+      def add_link_from_release(instance_group_name, kind, link_name, source)
+        @link_infos[instance_group_name] ||= {}
+        @link_infos[instance_group_name][kind] ||= {}
+        @link_infos[instance_group_name][kind][link_name] ||= {}
+
+        if source.eql? 'nil'
+          # This is the case where the user set link source to nil explicitly in the deployment manifest
+          # We should skip the binding of this link, even if it exist. This is used only when the link
+          # is optional
+          @link_infos[instance_group_name][kind][link_name]['skip_link'] = true
+        else
+          source.to_a.each do |key, value|
+            if key == "properties"
+              key = "link_properties_exported"
+            end
+            @link_infos[instance_group_name][kind][link_name][key] = value
           end
         end
       end
 
-      def bind_instances(ip_provider)
-        instances.each(&:ensure_model_bound)
-        bind_instance_networks(ip_provider)
-      end
+      def add_link_from_manifest(instance_group_name, kind, link_name, source)
+        @link_infos[instance_group_name] ||= {}
+        @link_infos[instance_group_name][kind] ||= {}
+        @link_infos[instance_group_name][kind][link_name] ||= {}
 
-      #TODO: Job should not be responsible for reserving IPs. Consider moving this somewhere else? Maybe in the consumer?
-      def bind_instance_networks(ip_provider)
-        needed_instance_plans
-          .flat_map(&:network_plans)
-          .reject(&:obsolete?)
-          .reject(&:existing?)
-          .each do |network_plan|
-          reservation = network_plan.reservation
-          ip_provider.reserve(reservation)
+        if source.eql? 'nil'
+          # This is the case where the user set link source to nil explicitly in the deployment manifest
+          # We should skip the binding of this link, even if it exist. This is used only when the link
+          # is optional
+          @link_infos[instance_group_name][kind][link_name]['skip_link'] = true
+        else
+          errors = []
+          if kind == "consumes"
+            errors = validate_consume_link(source, link_name, instance_group_name)
+          elsif kind == "provides"
+            errors.concat(validate_provide_link(link_name, instance_group_name))
+          end
+          errors.concat(validate_link_def(source, link_name, instance_group_name))
+
+          if errors.size > 0
+            raise errors.join("\n")
+          end
+
+          source_hash = source.to_a
+          source_hash.each do |key, value|
+            @link_infos[instance_group_name][kind][link_name][key] = value
+          end
         end
       end
 
-      def has_network?(network_name)
-        networks.any? do |network|
-          network.name == network_name
+      def consumes_link_info(instance_group_name, link_name)
+        @link_infos.fetch(instance_group_name, {}).fetch('consumes', {}).fetch(link_name, {})
+      end
+
+      def provides_link_info(instance_group_name, link_name)
+        @link_infos.fetch(instance_group_name, {}).fetch('provides', {}).each do |index, link|
+          if link['as'] == link_name
+            return link
+          end
         end
+        return @link_infos.fetch(instance_group_name, {}).fetch('provides', {}).fetch(link_name, {})
       end
 
-      def is_service?
-        @lifecycle == 'service'
+      def add_properties(properties, instance_group_name)
+        @properties[instance_group_name] = properties
       end
 
-      def is_errand?
-        @lifecycle == 'errand'
-      end
+      def bind_properties(instance_group_name, deployment_name, options = {})
+        @config_server_client = Bosh::Director::ConfigServer::ClientFactory.create(@logger).create_client(deployment_name)
 
-      # reverse compatibility: translate disk size into a disk pool
-      def persistent_disk=(disk_size)
-        @persistent_disk_type = DiskType.new(SecureRandom.uuid, disk_size, {})
-      end
+        bound_properties = {}
+        @properties[instance_group_name] ||= {}
 
-      def instance_plans_with_missing_vms
-        needed_instance_plans.reject do |instance_plan|
-          instance_plan.instance.vm_created? || instance_plan.instance.state == 'detached'
+        release_job_spec_properties.each_pair do |name, definition|
+          validate_properties_format(@properties[instance_group_name], name)
+
+          provided_property_value = lookup_property(@properties[instance_group_name], name)
+          property_value_to_use = @config_server_client.prepare_and_get_property(
+            provided_property_value,
+            definition['default'],
+            definition['type'],
+            options
+          )
+
+          set_property(bound_properties, name, property_value_to_use)
         end
-      end
-
-      def add_resolved_link(link_name, link_spec)
-        @resolved_links[link_name] = link_spec
-      end
-
-      def link_spec
-        @resolved_links
-      end
-
-      def link_path(template_name, link_name)
-        @link_paths.fetch(template_name, {})[link_name]
-      end
-
-      def add_link_path(template_name, link_name, link_path)
-        @link_paths[template_name] ||= {}
-        @link_paths[template_name][link_name] = link_path
-      end
-
-      def compilation?
-        false
+        @properties[instance_group_name] = bound_properties
       end
 
       private
 
-      # @param [Hash] collection All properties collection
-      # @return [Hash] Properties required by templates included in this job
-      def filter_properties(collection)
-        if @templates.none? { |template| template.properties}
-          result = {}
-          @templates.each do |template|
-            result[template.name] = collection
-          end
-          return result
+      def validate_consume_link(source, link_name, instance_group_name)
+        blacklist = [ ['instances', 'from'], ['properties', 'from'] ]
+        errors = []
+        if source == nil
+          return errors
         end
 
-        if @templates.all? { |template| template.properties }
-          return extract_template_properties(collection)
-        end
-
-        raise JobIncompatibleSpecs,
-              "Instance group '#{name}' has specs with conflicting property definition styles between" +
-                  " its job spec templates.  This may occur if colocating jobs, one of which has a spec file including" +
-                  " 'properties' and one which doesn't."
-      end
-
-      def extract_template_properties(collection)
-        result = {}
-
-        # Horrible hack to pass through dns info
-        copy_property(result, collection, "dns")
-
-        @templates.each do |template|
-          # If a template has properties that were defined in the deployment manifest
-          # for that template only, then we need to bind only these properties, and not
-          # make them available to other templates in the same deployment job. That can
-          # be done by checking @template_scoped_properties variable of each
-          # template
-          result[template.name] ||= {}
-          if template.has_template_scoped_properties(@name)
-            template.bind_template_scoped_properties(@name)
-            result[template.name] = template.template_scoped_properties[@name]
-          else
-            template.properties.each_pair do |name, definition|
-              copy_property(result[template.name], collection, name, definition["default"])
-            end
+        blacklist.each do |invalid_props|
+          if invalid_props.all? { |prop| source.has_key?(prop) }
+            errors.push("Cannot specify both '#{invalid_props[0]}' and '#{invalid_props[1]}' keys for link '#{link_name}' in job '#{@name}' in instance group '#{instance_group_name}'.")
           end
         end
 
-        result
+        if source.has_key?('properties') && !source.has_key?('instances')
+          errors.push("Cannot specify 'properties' without 'instances' for link '#{link_name}' in job '#{@name}' in instance group '#{instance_group_name}'.")
+        end
+
+        errors
       end
 
-      def run_time_dependencies
-        templates.flat_map { |template| template.package_models }.uniq.map(&:name)
+      def validate_provide_link(link_name, instance_group_name)
+        # Assumption: release spec has been parsed prior to the manifest being
+        # parsed. This way, we can check to see if there are any provides link being provided.
+        errors = []
+        if @link_infos[instance_group_name]["provides"][link_name].empty?
+          errors.push("Job '#{instance_group_name}' does not provide link '#{link_name}' in the release spec")
+        end
+
+        return errors
+      end
+
+      def validate_link_def(source, link_name, instance_group_name)
+        errors = []
+        if !source.nil? && (source.has_key?('name') || source.has_key?('type'))
+          errors.push("Cannot specify 'name' or 'type' properties in the manifest for link '#{link_name}' in job '#{@name}' in instance group '#{instance_group_name}'. Please provide these keys in the release only.")
+        end
+        errors
+      end
+
+      # Returns model only if it's present, fails otherwise
+      # @return [Models::Template]
+      def present_model
+        if @model.nil?
+          raise DirectorError, "Job '#{@name}' model is unbound"
+        end
+        @model
+      end
+
+      # @return [Hash]
+      def release_job_spec_properties
+        present_model.properties
+      end
+
+      def links_of_kind_for_instance_group_name(instance_group_name, kind)
+        if link_infos.has_key?(instance_group_name) && link_infos[instance_group_name].has_key?(kind)
+          return link_infos[instance_group_name][kind]
+        end
+        return []
       end
     end
   end

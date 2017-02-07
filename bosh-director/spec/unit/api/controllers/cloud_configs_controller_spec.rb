@@ -8,7 +8,7 @@ module Bosh::Director
 
     subject(:app) { Api::Controllers::CloudConfigsController.new(config) }
     let(:config) do
-      config = Config.load_hash(Psych.load(spec_asset('test-director-config.yml')))
+      config = Config.load_hash(SpecHelper.spec_get_director_config)
       identity_provider = Support::TestIdentityProvider.new(config.get_uuid_provider)
       allow(config).to receive(:identity_provider).and_return(identity_provider)
       config
@@ -19,7 +19,7 @@ module Bosh::Director
         before { authorize 'admin', 'admin' }
 
         it 'creates a new cloud config' do
-          properties = Psych.dump(Bosh::Spec::Deployments.simple_cloud_config)
+          properties = YAML.dump(Bosh::Spec::Deployments.simple_cloud_config)
           expect {
             post '/', properties, {'CONTENT_TYPE' => 'text/yaml'}
           }.to change(Models::CloudConfig, :count).from(0).to(1)
@@ -71,7 +71,7 @@ module Bosh::Director
       it 'creates a new event' do
         authorize('admin', 'admin')
 
-        properties = Psych.dump(Bosh::Spec::Deployments.simple_cloud_config)
+        properties = YAML.dump(Bosh::Spec::Deployments.simple_cloud_config)
         expect {
           post '/', properties, {'CONTENT_TYPE' => 'text/yaml'}
         }.to change(Bosh::Director::Models::Event, :count).from(0).to(1)

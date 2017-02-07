@@ -2,6 +2,7 @@ module Bosh::Director
   module Jobs
     class UpdateDeployment < BaseJob
       include LockHelper
+      include LegacyDeploymentHelper
 
       @queue = :normal
 
@@ -9,82 +10,108 @@ module Bosh::Director
         :update_deployment
       end
 
-      def initialize(manifest_file_path, cloud_config_id, runtime_config_id, options = {})
+      def initialize(manifest_text, cloud_config_id, runtime_config_id, options = {})
         @blobstore = App.instance.blobstores.blobstore
-        @manifest_file_path = manifest_file_path
+        @manifest_text = manifest_text
         @cloud_config_id = cloud_config_id
         @runtime_config_id = runtime_config_id
         @options = options
+        @event_log = Config.event_log
+      end
+
+      def dry_run?
+        true if @options['dry_run']
       end
 
       def perform
         logger.info('Reading deployment manifest')
+        manifest_hash = YAML.load(@manifest_text)
+        logger.debug("Manifest:\n#{@manifest_text}")
 
-        manifest_text = File.read(@manifest_file_path)
-        logger.debug("Manifest:\n#{manifest_text}")
-        cloud_config_model = Bosh::Director::Models::CloudConfig[@cloud_config_id]
-        if cloud_config_model.nil?
-          logger.debug("No cloud config uploaded yet.")
+        if ignore_cloud_config?(manifest_hash)
+          warning = "Ignoring cloud config. Manifest contains 'networks' section."
+          logger.debug(warning)
+          @event_log.warn_deprecated(warning)
+          cloud_config_model = nil
         else
-          logger.debug("Cloud config:\n#{cloud_config_model.manifest}")
+          cloud_config_model = Bosh::Director::Models::CloudConfig[@cloud_config_id]
+          if cloud_config_model.nil?
+            logger.debug("No cloud config uploaded yet.")
+          else
+            logger.debug("Cloud config:\n#{cloud_config_model.manifest}")
+          end
         end
 
         runtime_config_model = Bosh::Director::Models::RuntimeConfig[@runtime_config_id]
         if runtime_config_model.nil?
           logger.debug("No runtime config uploaded yet.")
         else
-          logger.debug("Runtime config:\n#{runtime_config_model.manifest}")
+          logger.debug("Runtime config:\n#{runtime_config_model.raw_manifest}")
         end
 
-        deployment_manifest = Manifest.load_from_text(manifest_text, cloud_config_model, runtime_config_model)
-        @deployment_name = deployment_manifest.to_hash['name']
+        deployment_manifest_object = Manifest.load_from_hash(manifest_hash, cloud_config_model, runtime_config_model)
+
+        @deployment_name = deployment_manifest_object.to_hash['name']
+
+        previous_releases, previous_stemcells = get_stemcells_and_releases
+        context = {}
         parent_id = add_event
 
         with_deployment_lock(@deployment_name) do
           @notifier = DeploymentPlan::Notifier.new(@deployment_name, Config.nats_rpc, logger)
-          @notifier.send_start_event
+          @notifier.send_start_event unless dry_run?
 
           deployment_plan = nil
 
-          event_log_stage = Config.event_log.begin_stage('Preparing deployment', 1)
+          event_log_stage = @event_log.begin_stage('Preparing deployment', 1)
           event_log_stage.advance_and_track('Preparing deployment') do
             planner_factory = DeploymentPlan::PlannerFactory.create(logger)
-            deployment_plan = planner_factory.create_from_manifest(deployment_manifest, cloud_config_model, runtime_config_model, @options)
+            deployment_plan = planner_factory.create_from_manifest(deployment_manifest_object, cloud_config_model, runtime_config_model, @options)
             deployment_plan.bind_models
           end
 
-          render_job_templates(deployment_plan.jobs_starting_on_deploy)
-          deployment_plan.compile_packages
-
-          update_step(deployment_plan).perform
-
-          if check_for_changes(deployment_plan)
-            PostDeploymentScriptRunner.run_post_deploys_after_deployment(deployment_plan)
+          if deployment_plan.instance_models.any?(&:ignore)
+            @event_log.warn('You have ignored instances. They will not be changed.')
           end
 
-          @notifier.send_end_event
-          logger.info('Finished updating deployment')
-          add_event(parent_id)
+          next_releases, next_stemcells  = get_stemcells_and_releases
+          context = event_context(next_releases, previous_releases, next_stemcells, previous_stemcells)
 
-          "/deployments/#{deployment_plan.name}"
+          render_job_templates(deployment_plan.instance_groups_starting_on_deploy)
+
+          if dry_run?
+            return "/deployments/#{deployment_plan.name}"
+          else
+            deployment_plan.compile_packages
+
+            update_step(deployment_plan).perform
+
+            if check_for_changes(deployment_plan)
+              PostDeploymentScriptRunner.run_post_deploys_after_deployment(deployment_plan)
+            end
+
+            @notifier.send_end_event
+            logger.info('Finished updating deployment')
+            add_event(context, parent_id)
+
+            "/deployments/#{deployment_plan.name}"
+          end
         end
       rescue Exception => e
         begin
-          @notifier.send_error_event e
+          @notifier.send_error_event e unless dry_run?
         rescue Exception => e2
           # log the second error
         ensure
-          add_event(parent_id, e)
+          add_event(context, parent_id, e)
           raise e
         end
-      ensure
-        FileUtils.rm_rf(@manifest_file_path)
       end
 
       private
 
-      def add_event(parent_id = nil, error = nil)
-        action = deployment_new? ? "create" : "update"
+      def add_event(context = {}, parent_id = nil, error = nil)
+        action = @options.fetch('new', false) ? "create" : "update"
         event  = event_manager.create_event(
             {
                 parent_id:   parent_id,
@@ -94,7 +121,8 @@ module Bosh::Director
                 object_name: @deployment_name,
                 deployment:  @deployment_name,
                 task:        task_id,
-                error:       error
+                error:       error,
+                context:     context
             })
         event.id
       end
@@ -102,7 +130,7 @@ module Bosh::Director
       # Job tasks
 
       def check_for_changes(deployment_plan)
-        deployment_plan.jobs.each do |job|
+        deployment_plan.instance_groups.each do |job|
           return true if job.did_change
         end
         false
@@ -130,7 +158,7 @@ module Bosh::Director
         job_renderer = JobRenderer.create
         jobs.each do |job|
           begin
-            job_renderer.render_job_instances(job.needed_instance_plans)
+            job_renderer.render_job_instances(job.needed_instance_plans, dry_run: @options['dry_run'])
           rescue Exception => e
             errors.push e
           end
@@ -147,8 +175,38 @@ module Bosh::Director
         end
       end
 
-      def deployment_new?
-        @deployment_new ||= Models::Deployment.exclude(manifest: nil)[name: @deployment_name].nil?
+      def get_stemcells_and_releases
+        deployment = current_deployment
+        stemcells = []
+        releases = []
+        if deployment
+          releases = deployment.release_versions.map do |rv|
+            "#{rv.release.name}/#{rv.version}"
+          end
+          stemcells = deployment.stemcells.map do |sc|
+            "#{sc.name}/#{sc.version}"
+          end
+        end
+        return releases, stemcells
+      end
+
+      def current_deployment
+        Models::Deployment[name: @deployment_name]
+      end
+
+      def event_context(next_releases, previous_releases, next_stemcells, previous_stemcells)
+        after_objects = {}
+        after_objects['releases'] = next_releases unless next_releases.empty?
+        after_objects['stemcells'] = next_stemcells unless next_stemcells.empty?
+
+        before_objects = {}
+        before_objects['releases'] = previous_releases unless previous_releases.empty?
+        before_objects['stemcells'] = previous_stemcells unless previous_stemcells.empty?
+
+        context = {}
+        context['before'] = before_objects
+        context['after'] = after_objects
+        context
       end
     end
   end

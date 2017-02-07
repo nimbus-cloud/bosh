@@ -38,9 +38,8 @@ module Bosh::Director
       instance.update(vm_cid: nil, agent_id: nil, trusted_certs_sha1: nil, credentials: nil)
     end
 
-    def recreate_vm(instance_model)
-      @logger.debug("Recreating Vm: #{instance_model})")
-      existing_vm_env = instance_model.vm_env
+    def delete_vm_from_cloud(instance_model)
+      @logger.debug("Deleting Vm: #{instance_model})")
 
       validate_spec(instance_model.spec)
       validate_env(instance_model.vm_env)
@@ -56,12 +55,22 @@ module Bosh::Director
 
         @logger.warn("VM '#{instance_model.vm_cid}' might have already been deleted from the cloud")
       end
+    end
 
-      instance_plan_to_create = create_instance_plan(instance_model, existing_vm_env)
+    def recreate_vm_skip_post_start(instance_model)
+      recreate_vm(instance_model, false)
+    end
 
+    def recreate_vm(instance_model, run_post_start = true)
+      @logger.debug("Recreating Vm: #{instance_model})")
+      delete_vm_from_cloud(instance_model)
+
+      instance_plan_to_create = create_instance_plan(instance_model)
+      tags = instance_model.deployment.tags
       vm_creator.create_for_instance_plan(
         instance_plan_to_create,
-        Array(instance_model.persistent_disk_cid)
+        Array(instance_model.managed_persistent_disk_cid),
+        tags
       )
 
       dns_manager = DnsManagerProvider.create
@@ -79,7 +88,7 @@ module Bosh::Director
       dns_manager.update_dns_record_for_instance(instance_model, dns_names_to_ip)
       dns_manager.flush_dns_cache
 
-      InstanceUpdater::InstanceState.with_instance_update(instance_model) do
+      cloud_check_procedure = lambda do
         cleaner = RenderedJobTemplatesCleaner.new(instance_model, App.instance.blobstores.blobstore, @logger)
 
         # for backwards compatibility with instances that don't have update config
@@ -91,15 +100,16 @@ module Bosh::Director
           cleaner,
           @logger,
           {}
-        ).apply(update_config)
+        ).apply(update_config, run_post_start)
       end
+      InstanceUpdater::InstanceState.with_instance_update(instance_model, &cloud_check_procedure)
     end
 
     private
 
-    def create_instance_plan(instance_model, vm_env)
+    def create_instance_plan(instance_model)
       vm_type = DeploymentPlan::VmType.new(instance_model.spec['vm_type'])
-      env = DeploymentPlan::Env.new(vm_env)
+      env = DeploymentPlan::Env.new(instance_model.vm_env)
       stemcell = DeploymentPlan::Stemcell.parse(instance_model.spec['stemcell'])
       stemcell.add_stemcell_model
       availability_zone = DeploymentPlan::AvailabilityZone.new(instance_model.availability_zone, instance_model.cloud_properties_hash)
@@ -152,14 +162,14 @@ module Bosh::Director
     end
 
     def vm_deleter
-      @vm_deleter ||= VmDeleter.new(cloud, @logger)
+      @vm_deleter ||= VmDeleter.new(cloud, @logger, false, Config.enable_virtual_delete_vms)
     end
 
     def vm_creator
       disk_manager = DiskManager.new(cloud, @logger)
-      arp_flusher = ArpFlusher.new
+      agent_broadcaster = AgentBroadcaster.new
       job_renderer = JobRenderer.create
-      @vm_creator ||= VmCreator.new(cloud, @logger, vm_deleter, disk_manager, job_renderer, arp_flusher)
+      @vm_creator ||= VmCreator.new(cloud, @logger, vm_deleter, disk_manager, job_renderer, agent_broadcaster)
     end
 
     def validate_spec(spec)

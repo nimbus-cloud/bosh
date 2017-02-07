@@ -31,13 +31,12 @@ module Bosh::Stemcell
 
     def agent_stages
       [
-        :bosh_ruby,
+        :bosh_libyaml,
         :bosh_go_agent,
-        :bosh_micro_go,
         :aws_cli,
         :logrotate_config,
         :dev_tools_config,
-      ].reject{ |s| Bosh::Stemcell::Arch.ppc64le? and [:bosh_ruby, :bosh_micro_go].include?(s) }
+      ]
     end
 
     def build_stemcell_image_stages
@@ -117,11 +116,10 @@ module Bosh::Stemcell
         # nimbus customisations - start
         # :utils,
         # :nagios,
-        :munin,
+        # :munin,
         :root_certificate,
         :drbd,
-        :nimbus_password,
-        :bosh_monit,        
+        :bosh_monit,
         # nimbus customisations - end
         :bosh_clean,
         :bosh_harden,
@@ -181,6 +179,7 @@ module Bosh::Stemcell
         :system_azure_network,
         :system_azure_wala,
         :system_parameters,
+        :enable_udf_module,
         :bosh_clean,
         :bosh_harden,
         :bosh_azure_agent_settings,
@@ -195,7 +194,6 @@ module Bosh::Stemcell
           :system_network,
           :system_softlayer_open_iscsi,
           :system_softlayer_multipath_tools,
-          :disable_blank_passwords,
           :system_parameters,
           :bosh_clean,
           :bosh_harden,
@@ -224,13 +222,15 @@ module Bosh::Stemcell
         :system_ixgbevf,
         bosh_steps,
         :password_policies,
+        :restrict_su_command,
         :tty_config,
         :rsyslog_config,
         :delay_monit_start,
         :system_grub,
         :cron_config,
         :escape_ctrl_alt_del,
-        :bosh_audit
+        :bosh_audit,
+        :bosh_log_audit_start,
       ].flatten
     end
 
@@ -266,6 +266,7 @@ module Bosh::Stemcell
         :system_ixgbevf,
         bosh_steps,
         :password_policies,
+        :restrict_su_command,
         :tty_config,
         :rsyslog_config,
         :delay_monit_start,
@@ -273,7 +274,9 @@ module Bosh::Stemcell
         :vim_tiny,
         :cron_config,
         :escape_ctrl_alt_del,
-        :bosh_audit
+        :system_users,
+        :bosh_audit,
+        :bosh_log_audit_start,
       ].flatten.reject{ |s| Bosh::Stemcell::Arch.ppc64le? and s ==  :system_ixgbevf }
     end
 
@@ -293,7 +296,9 @@ module Bosh::Stemcell
     def bosh_steps
       [
         :bosh_sysctl,
+        :bosh_limits,
         :bosh_users,
+        :nimbus_password,
         :bosh_monit,
         :bosh_ntpdate,
         :bosh_sudoers,

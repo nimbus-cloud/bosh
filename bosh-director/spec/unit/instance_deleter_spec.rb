@@ -5,19 +5,18 @@ module Bosh::Director
     before { allow(App).to receive_message_chain(:instance, :blobstores, :blobstore).and_return(blobstore) }
     let(:blobstore) { instance_double('Bosh::Blobstore::Client') }
     let(:domain) { Models::Dns::Domain.make(name: 'bosh') }
-    let(:cloud) { instance_double('Bosh::Cloud') }
+    let(:cloud) { Config.cloud }
     let(:delete_job) {Jobs::DeleteDeployment.new('test_deployment', {})}
     let(:task) {Bosh::Director::Models::Task.make(:id => 42, :username => 'user')}
 
     before do
-      allow(Config).to receive(:cloud).and_return(cloud)
       allow(delete_job).to receive(:task_id).and_return(task.id)
       allow(Config).to receive(:current_job).and_return(delete_job)
       allow(Bosh::Director::Config).to receive(:record_events).and_return(true)
     end
 
     let(:ip_provider) { instance_double(DeploymentPlan::IpProvider) }
-    let(:dns_manager) { instance_double(DnsManager, delete_dns_for_instance: nil) }
+    let(:dns_manager) { instance_double(DnsManager, delete_dns_for_instance: nil, cleanup_dns_records: nil, publish_dns_records: nil) }
     let(:options) { {} }
     let(:deleter) { InstanceDeleter.new(ip_provider, dns_manager, disk_manager, options) }
     let(:disk_manager) { DiskManager.new(cloud, logger) }
@@ -67,7 +66,7 @@ module Bosh::Director
         end
 
         let(:deployment_model) { Models::Deployment.make(name: 'deployment-name') }
-        let(:job) { DeploymentPlan::Job.new(logger) }
+        let(:job) { DeploymentPlan::InstanceGroup.new(logger) }
         let(:deployment_plan) { instance_double(DeploymentPlan::Planner, ip_provider: ip_provider, model: deployment_model) }
 
         let(:stopper) { instance_double(Stopper) }
@@ -117,7 +116,7 @@ module Bosh::Director
           expect(stopper).to receive(:stop)
           expect(cloud).to receive(:delete_vm).with(existing_instance.vm_cid)
           expect(ip_provider).to receive(:release).with(reservation)
-          expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/5 (my-uuid-1)')
+          expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/my-uuid-1 (5)')
 
           expect {
             deleter.delete_instance_plans([instance_plan], event_log_stage)
@@ -170,10 +169,12 @@ module Bosh::Director
         it 'drains, deletes snapshots, dns records, persistent disk, releases old reservations' do
           expect(stopper).to receive(:stop)
           expect(dns_manager).to receive(:delete_dns_for_instance).with(existing_instance)
+          expect(dns_manager).to receive(:cleanup_dns_records)
+          expect(dns_manager).to receive(:publish_dns_records)
           expect(cloud).to receive(:delete_vm).with(existing_instance.vm_cid)
           expect(ip_provider).to receive(:release).with(reservation)
 
-          expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/5 (my-uuid-1)')
+          expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/my-uuid-1 (5)')
 
           job_templates_cleaner = instance_double('Bosh::Director::RenderedJobTemplatesCleaner')
           allow(RenderedJobTemplatesCleaner).to receive(:new).with(existing_instance, blobstore, logger).and_return(job_templates_cleaner)
@@ -196,10 +197,12 @@ module Bosh::Director
             it 'deletes snapshots, persistent disk, releases old reservations' do
               expect(disk_manager).to receive(:delete_persistent_disks).with(existing_instance)
               expect(dns_manager).to receive(:delete_dns_for_instance).with(existing_instance)
+              expect(dns_manager).to receive(:cleanup_dns_records)
+              expect(dns_manager).to receive(:publish_dns_records)
               expect(cloud).to receive(:delete_vm).with(existing_instance.vm_cid)
               expect(ip_provider).to receive(:release).with(reservation)
 
-              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/5 (my-uuid-1)')
+              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/my-uuid-1 (5)')
 
               expect(job_templates_cleaner).to receive(:clean_all).with(no_args)
 
@@ -220,9 +223,11 @@ module Bosh::Director
               expect(stopper).to receive(:stop)
               expect(disk_manager).to receive(:delete_persistent_disks).with(existing_instance)
               expect(dns_manager).to receive(:delete_dns_for_instance).with(existing_instance)
+              expect(dns_manager).to receive(:cleanup_dns_records)
+              expect(dns_manager).to receive(:publish_dns_records)
               expect(ip_provider).to receive(:release).with(reservation)
 
-              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/5 (my-uuid-1)')
+              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/my-uuid-1 (5)')
 
               expect(job_templates_cleaner).to receive(:clean_all).with(no_args)
 
@@ -235,6 +240,8 @@ module Bosh::Director
           context 'when deleting dns fails' do
             before do
               allow(dns_manager).to receive(:delete_dns_for_instance).and_raise('failed')
+              allow(dns_manager).to receive(:cleanup_dns_records)
+              allow(dns_manager).to receive(:publish_dns_records)
             end
 
             it 'drains, deletes vm, snapshots, disks, releases old reservations' do
@@ -243,7 +250,7 @@ module Bosh::Director
               expect(disk_manager).to receive(:delete_persistent_disks).with(existing_instance)
               expect(ip_provider).to receive(:release).with(reservation)
 
-              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/5 (my-uuid-1)')
+              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/my-uuid-1 (5)')
 
               expect(job_templates_cleaner).to receive(:clean_all).with(no_args)
 
@@ -264,13 +271,36 @@ module Bosh::Director
               expect(disk_manager).to receive(:delete_persistent_disks).with(existing_instance)
               expect(ip_provider).to receive(:release).with(reservation)
 
-              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/5 (my-uuid-1)')
+              expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/my-uuid-1 (5)')
               expect(job_templates_cleaner).to receive(:clean_all).with(no_args)
 
               expect {
                 deleter.delete_instance_plans([instance_plan], event_log_stage)
               }.to change { Models::Instance.where(vm_cid: 'fake-vm-cid').count}.from(1).to(0)
             end
+          end
+        end
+
+        context 'when virtual_delete_vm option is passed in' do
+          let(:options) { {virtual_delete_vm: true} }
+
+          it 'deletes snapshots, persistent disk, releases old reservations, vm should not be deleted from cloud' do
+
+            expect(stopper).to receive(:stop)
+            expect(cloud).not_to receive(:delete_vm)
+
+            expect(disk_manager).to receive(:delete_persistent_disks).with(existing_instance)
+            expect(dns_manager).to receive(:delete_dns_for_instance).with(existing_instance)
+            expect(dns_manager).to receive(:cleanup_dns_records)
+            expect(dns_manager).to receive(:publish_dns_records)
+            expect(ip_provider).to receive(:release).with(reservation)
+
+            expect(event_log_stage).to receive(:advance_and_track).with('fake-job-name/my-uuid-1 (5)')
+            expect(job_templates_cleaner).to receive(:clean_all).with(no_args)
+
+            expect {
+              deleter.delete_instance_plans([instance_plan], event_log_stage)
+            }.to change { Models::Instance.where(vm_cid: 'fake-vm-cid').count}.from(1).to(0)
           end
         end
       end

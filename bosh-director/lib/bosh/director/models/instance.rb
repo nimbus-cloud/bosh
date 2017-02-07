@@ -15,13 +15,21 @@ module Bosh::Director::Models
       validates_includes %w(started stopped detached), :state
     end
 
-    def persistent_disk
-      # Currently we support only 1 persistent disk.
-      self.persistent_disks.find { |disk| disk.active }
+    def managed_persistent_disk
+      PersistentDisk.first(active: true, name: '', instance: self)
     end
 
-    def persistent_disk_cid
-      disk = persistent_disk
+    def active_persistent_disks
+      disk_collection = Bosh::Director::DeploymentPlan::PersistentDiskCollection.new(Bosh::Director::Config.logger)
+      self.persistent_disks.select { |disk| disk.active }.each do |disk|
+        disk_collection.add_by_model(disk)
+      end
+      disk_collection
+    end
+
+    # @todo[multi-disks] drop this method+calls since it's assuming a single persistent disk
+    def managed_persistent_disk_cid
+      disk = managed_persistent_disk
       return disk.disk_cid if disk
       nil
     end
@@ -67,13 +75,18 @@ module Bosh::Director::Models
     end
 
     def to_s
-      "#{self.job}/#{self.index} (#{self.uuid})"
+      "#{self.job}/#{self.uuid} (#{self.index})"
     end
 
     def spec
       return nil if spec_json.nil?
 
-      result = Yajl::Parser.parse(spec_json)
+      begin
+        result = JSON.parse(spec_json)
+      rescue JSON::ParserError
+        return 'error'
+      end
+
       if result['resource_pool'].nil?
         result
       else
@@ -96,7 +109,24 @@ module Bosh::Director::Models
     end
 
     def spec=(spec)
-      self.spec_json = Yajl::Encoder.encode(spec)
+      if spec.nil?
+        self.spec_json = nil
+      else
+        begin
+          self.spec_json = JSON.generate(spec)
+        rescue JSON::GeneratorError
+          self.spec_json = 'error'
+        end
+      end
+    end
+
+    def spec_p(property_path)
+      current_prop = spec
+      property_path.split('.').each do |prop|
+        return nil if current_prop.nil? || !current_prop.is_a?(Hash)
+        current_prop = current_prop[prop]
+      end
+      current_prop
     end
 
     def vm_env
@@ -105,12 +135,34 @@ module Bosh::Director::Models
     end
 
     def credentials
-      return nil if credentials_json.nil?
-      Yajl::Parser.parse(credentials_json)
+      object_or_nil(credentials_json)
     end
 
     def credentials=(spec)
-      self.credentials_json = Yajl::Encoder.encode(spec)
+      self.credentials_json = json_encode(spec)
+    end
+
+    def lifecycle
+      spec_hash = spec
+      spec_hash ? spec_hash['lifecycle'] : nil
+    end
+
+    def expects_vm?
+      lifecycle == 'service' && ['started', 'stopped'].include?(self.state)
+    end
+
+    private
+
+    def object_or_nil(value)
+      if value == 'null' || value.nil?
+        nil
+      else
+        JSON.parse(value)
+      end
+    end
+
+    def json_encode(value)
+      value.nil? ? 'null' : JSON.generate(value)
     end
   end
 

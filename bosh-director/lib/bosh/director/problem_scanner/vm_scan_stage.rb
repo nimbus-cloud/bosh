@@ -21,7 +21,7 @@ module Bosh::Director
           @instance_manager.find_by_name(@deployment, job, index)
         end
       else
-        instances = Models::Instance.filter(deployment: @deployment).exclude(vm_cid: nil).all
+        instances = Models::Instance.filter(deployment: @deployment).all.select{|instance| instance.expects_vm?}
       end
 
       @event_logger.begin_stage("Scanning #{instances.size} VMs", 2)
@@ -31,6 +31,7 @@ module Bosh::Director
       @event_logger.track_and_log('Checking VM states') do
         ThreadPool.new(max_threads: Config.max_threads).wrap do |pool|
           instances.each do |instance|
+            next if instance.ignore
             pool.process do
               scan_result = scan_vm(instance)
               lock.synchronize { results[scan_result] += 1 }
@@ -39,10 +40,13 @@ module Bosh::Director
         end
       end
 
+      ignored_instances_count = instances.count(&:ignore)
+
       @event_logger.track_and_log("#{results[:ok]} OK, " +
         "#{results[:unresponsive]} unresponsive, " +
         "#{results[:missing]} missing, " +
-        "#{results[:unbound]} unbound")
+        "#{results[:unbound]} unbound" +
+        (ignored_instances_count>0 ? ", #{ignored_instances_count} ignored" : ''))
     end
 
     private
@@ -75,7 +79,7 @@ module Bosh::Director
         add_disk_owner(mounted_disk_cid, instance.vm_cid) if mounted_disk_cid
 
         begin
-          if instance.vm_cid && !@cloud.has_vm?(instance.vm_cid)
+          if !has_vm?(instance)
             @logger.info("Missing VM #{instance.vm_cid}")
             @problem_register.problem_found(:missing_vm, instance)
             return :missing
@@ -87,6 +91,10 @@ module Bosh::Director
         @problem_register.problem_found(:unresponsive_agent, instance)
         :unresponsive
       end
+    end
+
+    def has_vm?(instance)
+      instance.vm_cid && @cloud.has_vm?(instance.vm_cid)
     end
 
     def add_disk_owner(disk_cid, vm_cid)

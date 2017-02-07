@@ -9,7 +9,7 @@ module Bosh::Director
         ip_provider: ip_provider,
         skip_drain: skip_drain
       }) }
-    let(:job) { instance_double('Bosh::Director::DeploymentPlan::Job', name: 'job_name') }
+    let(:job) { instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', name: 'job_name') }
     let(:blobstore) { instance_double('Bosh::Blobstore::Client') }
 
     let(:cloud) { instance_double('Bosh::Clouds') }
@@ -25,9 +25,6 @@ module Bosh::Director
       it 'binds vms to instances, creates jobs configurations and updates dns' do
         job_renderer = instance_double('Bosh::Director::JobRenderer')
         expect(JobRenderer).to receive(:create).and_return(job_renderer)
-
-        links_resolver = instance_double('Bosh::Director::DeploymentPlan::LinksResolver')
-        expect(DeploymentPlan::LinksResolver).to receive(:new).with(deployment, logger).and_return(links_resolver)
 
         job_updater = instance_double('Bosh::Director::JobUpdater')
         expect(JobUpdater).to receive(:new).and_return(job_updater)

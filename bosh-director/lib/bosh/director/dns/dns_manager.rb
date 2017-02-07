@@ -1,76 +1,28 @@
 module Bosh::Director
   class DnsManagerProvider
     def self.create
-      dns_enabled = !!Config.dns_db # to be consistent with current behavior
-      if dns_enabled
-        dns_config = Config.dns || {}
-        logger = Config.logger
-        local_dns_repo = LocalDnsRepo.new(logger)
-        dns_domain_name = Canonicalizer.canonicalize(dns_config.fetch('domain_name', 'bosh'), :allow_dots => true)
-        dns_provider = PowerDns.new(dns_domain_name, logger)
+      dns_config = Config.dns || {}
 
-        EnabledDnsManager.new(dns_domain_name, dns_config, dns_provider, local_dns_repo, logger)
-      else
-        DisabledDnsManager.new
-      end
-    end
-  end
+      logger = Config.logger
+      local_dns_repo = LocalDnsRepo.new(logger)
+      canonized_dns_domain_name = Config.canonized_dns_domain_name
 
-  private
+      dns_publisher = BlobstoreDnsPublisher.new(App.instance.blobstores.blobstore, canonized_dns_domain_name) if Config.local_dns_enabled?
+      dns_provider = PowerDns.new(canonized_dns_domain_name, logger) if !!Config.dns_db
 
-  class DnsManager
-    def configure_nameserver ; end
-
-    def delete_dns_for_instance(instance_model) ; end
-
-    def dns_record_name(hostname, job_name, network_name, deployment_name) ; end
-
-    # build a list of dns servers to use
-    def dns_servers(network, dns_spec, add_default_dns = true)
-      servers = nil
-
-      if dns_spec
-        servers = []
-        dns_spec.each do |dns|
-          dns = NetAddr::CIDR.create(dns)
-          unless dns.size == 1
-            raise NetworkInvalidDns,
-              "Invalid DNS for network '#{network}': must be a single IP"
-          end
-
-          servers << dns.ip
-        end
-      end
-
-      return servers unless add_default_dns
-      add_default_dns_server(servers)
-    end
-
-    def find_dns_record(dns_record_name, ip_address) ; end
-
-    def find_dns_record_names_by_instance(instance_model) ; end
-
-    def flush_dns_cache ; end
-
-    def migrate_legacy_records(instance_model) ; end
-
-    def update_dns_record_for_instance(instance_model, dns_names_to_ip) ; end
-
-    private
-
-    def add_default_dns_server(servers)
-      servers
+      DnsManager.new(canonized_dns_domain_name, dns_config, dns_provider, dns_publisher, local_dns_repo, logger)
     end
   end
 
   public
 
-  class EnabledDnsManager < DnsManager
+  class DnsManager
     attr_reader :dns_domain_name
 
-    def initialize(dns_domain_name, dns_config, dns_provider, local_dns_repo, logger)
+    def initialize(dns_domain_name, dns_config, dns_provider, dns_publisher, local_dns_repo, logger)
       @dns_domain_name = dns_domain_name
       @dns_provider = dns_provider
+      @dns_publisher = dns_publisher
       @default_server = dns_config['server']
       @flush_command = dns_config['flush_command']
       @ip_address = dns_config['address']
@@ -79,19 +31,19 @@ module Bosh::Director
     end
 
     def dns_enabled?
-      true
+      !@dns_provider.nil?
+    end
+
+    def publisher_enabled?
+      !@dns_publisher.nil?
     end
 
     def configure_nameserver
-      @dns_provider.create_or_update_nameserver(@ip_address)
+      @dns_provider.create_or_update_nameserver(@ip_address) if dns_enabled?
     end
 
     def find_dns_record(dns_record_name, ip_address)
       @dns_provider.find_dns_record(dns_record_name, ip_address)
-    end
-
-    def find_dns_record_names_by_instance(instance_model)
-      instance_model.nil? ? [] : instance_model.dns_record_names.to_a.compact
     end
 
     def update_dns_record_for_instance(instance_model, dns_names_to_ip)
@@ -99,15 +51,21 @@ module Bosh::Director
       new_dns_records = []
       dns_names_to_ip.each do |record_name, ip_address|
         new_dns_records << record_name
-        @logger.info("Updating DNS for: #{record_name} to #{ip_address}")
-        @dns_provider.create_or_update_dns_records(record_name, ip_address)
+        if dns_enabled?
+          @logger.info("Updating DNS for: #{record_name} to #{ip_address}")
+          @dns_provider.create_or_update_dns_records(record_name, ip_address)
+        end
       end
       dns_records = (current_dns_records + new_dns_records).uniq
       @local_dns_repo.create_or_update(instance_model, dns_records)
+      if Config.local_dns_enabled?
+        create_or_delete_local_dns_record(instance_model)
+      end
     end
 
     def migrate_legacy_records(instance_model)
       return if @local_dns_repo.find(instance_model).any?
+      return unless dns_enabled?
 
       index_pattern_for_all_networks = dns_record_name(
         instance_model.index,
@@ -131,6 +89,8 @@ module Bosh::Director
     end
 
     def delete_dns_for_instance(instance_model)
+      return if !dns_enabled?
+
       current_dns_records = @local_dns_repo.find(instance_model)
       if current_dns_records.empty?
         # for backwards compatibility when old instances
@@ -148,6 +108,7 @@ module Bosh::Director
       end
 
       @local_dns_repo.delete(instance_model)
+      delete_local_dns_record(instance_model) if Config.local_dns_enabled?
     end
 
     # build a list of dns servers to use
@@ -181,6 +142,25 @@ module Bosh::Director
           @logger.warn("Failed to flush DNS cache: #{stderr.chomp}")
         end
       end
+      publish_dns_records
+    end
+
+    def publish_dns_records
+      if publisher_enabled?
+        dns_records = @dns_publisher.export_dns_records
+        @dns_publisher.publish(dns_records)
+        @dns_publisher.broadcast
+      end
+    end
+
+    def cleanup_dns_records
+      if publisher_enabled?
+        @dns_publisher.cleanup_blobs
+      end
+    end
+
+    def find_dns_record_names_by_instance(instance_model)
+      instance_model.nil? ? [] : instance_model.dns_record_names.to_a.compact
     end
 
     def dns_record_name(hostname, job_name, network_name, deployment_name)
@@ -194,7 +174,68 @@ module Bosh::Director
       ].join('.')
     end
 
+    def find_local_dns_record(instance_model)
+      @logger.debug('Find local dns records')
+      result = []
+      with_valid_instance_spec_in_transaction(instance_model) do |name_uuid, name_index, ip|
+        @logger.debug("Finding local dns record with UUID name #{name_uuid} and ip #{ip}")
+        result = Models::LocalDnsRecord.where(:name => name_uuid, :ip => ip, :instance_id => instance_model.id ).all
+
+        if Config.local_dns_include_index?
+          @logger.debug("Finding local dns record with index name #{name_index} and ip #{ip}")
+          result += Models::LocalDnsRecord.where(:name => name_index, :ip => ip, :instance_id => instance_model.id ).all
+        end
+      end
+      result
+    end
+
+    def delete_local_dns_record(instance_model)
+      @logger.debug('Deleting local dns records')
+
+      @logger.debug("Removing local dns record for instance #{instance_model.id}")
+      Models::LocalDnsRecord.where(:instance_id => instance_model.id ).delete
+    end
+
+    def create_or_delete_local_dns_record(instance_model)
+      @logger.debug('Creating local dns records')
+
+      with_valid_instance_spec_in_transaction(instance_model) do |name_uuid, name_index, ip|
+        @logger.debug("Adding local dns record with UUID-based name '#{name_uuid}' and ip '#{ip}'")
+        Models::LocalDnsRecord.where(:name => name_uuid, :instance_id => instance_model.id ).exclude(:ip => ip.to_s).delete
+        begin
+          Models::LocalDnsRecord.create(:name => name_uuid, :ip => ip, :instance_id => instance_model.id )
+        rescue Sequel::UniqueConstraintViolation
+          @logger.info('Ignoring duplicate DNS record for performance reason')
+        end
+        if Config.local_dns_include_index?
+          @logger.debug("Adding local dns record with index-based name '#{name_index}' and ip '#{ip}'")
+          Models::LocalDnsRecord.where(:name => name_index, :instance_id => instance_model.id).exclude(:ip => ip.to_s).delete
+          begin
+            Models::LocalDnsRecord.create(:name => name_index, :ip => ip, :instance_id => instance_model.id)
+          rescue Sequel::UniqueConstraintViolation
+            @logger.info('Ignoring duplicate DNS record for performance reason')
+          end
+        end
+      end
+    end
+
     private
+
+    def with_valid_instance_spec_in_transaction(instance_model, &block)
+      spec = instance_model.spec
+      unless spec.nil? || spec['networks'].nil?
+        @logger.debug("Found #{spec['networks'].length} networks")
+        spec['networks'].each do |network_name, network|
+          unless network['ip'].nil? || spec['job'].nil?
+            ip = network['ip']
+            name_rest = '.' + Canonicalizer.canonicalize(spec['job']['name']) + '.' + network_name + '.' + Canonicalizer.canonicalize(spec['deployment']) + '.' + Config.canonized_dns_domain_name
+            name_uuid = instance_model.uuid + name_rest
+            name_index = instance_model.index.to_s + name_rest
+            block.call(name_uuid, name_index, ip)
+          end
+        end
+      end
+    end
 
     # add default dns server to an array of dns servers
     def add_default_dns_server(servers)
@@ -204,16 +245,6 @@ module Bosh::Director
       end
 
       servers
-    end
-  end
-
-  class DisabledDnsManager < DnsManager
-    def dns_domain_name
-      nil
-    end
-
-    def dns_enabled?
-      false
     end
   end
 end

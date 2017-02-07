@@ -111,7 +111,7 @@ describe 'Links', type: :integration do
         name: 'mongo',
         templates: [{'name' => 'mongo_db'}],
         instances: 1,
-        static_ips: ['192.168.1.13']
+        static_ips: ['192.168.1.13'],
       )
       job_spec['azs'] = ['z1']
       job_spec
@@ -183,6 +183,30 @@ describe 'Links', type: :integration do
         link_vm = find_vm(vms, 'new_job', '0')
         template = YAML.load(link_vm.read_job_template('http_proxy_with_requires', 'config/config.yml'))
         expect(template['links']).to contain_exactly(["address", "192.168.1.4"], ["properties", {"listen_port"=>9999, "name_space"=>{"prop_a"=>"default"}}])
+      end
+    end
+
+    context 'when link is not defined in provides spec but specified in manifest' do
+      let(:consume_job) do
+        job_spec = Bosh::Spec::Deployments.simple_job(
+          name: 'consume_job',
+          templates: [
+            {'name' => 'consumer', 'provides'=>{'consumer_resource' => {'from' => 'consumer'}}}
+          ],
+          instances: 1
+        )
+        job_spec['azs'] = ['z1']
+        job_spec
+      end
+
+      let(:manifest) do
+        manifest = Bosh::Spec::NetworkingManifest.deployment_manifest
+        manifest['jobs'] = [consume_job]
+        manifest
+      end
+
+      it 'should raise an error' do
+        expect { deploy_simple_manifest(manifest_hash: manifest) }.to raise_error(/Job 'consume_job' does not provide link 'consumer_resource' in the release spec/)
       end
     end
 
@@ -286,7 +310,7 @@ describe 'Links', type: :integration do
         it 'should not throw an error if the optional link was not found' do
           out, exit_code = deploy_simple_manifest(manifest_hash: manifest, return_exit_code: true)
           expect(exit_code).to eq(0)
-          expect(out).to include("Deployed 'simple' to 'Test Director'")
+          expect(out).to include("Deployed 'simple' to '#{current_sandbox.director_name}'")
         end
       end
 
@@ -439,9 +463,9 @@ Error 100: Unable to render instance groups for deployment. Errors are:
           expect(exit_code).not_to eq(0)
           expect(output).to include <<-EOF
 Error 100: Unable to process links for deployment. Errors are:
-   - "Multiple instance groups provide links of type 'db'. Cannot decide which one to use for instance group 'optional_db'.
-     simple.mysql.database.db
-     simple.postgres.backup_database.backup_db"
+   - Multiple instance groups provide links of type 'db'. Cannot decide which one to use for instance group 'optional_db'.
+        simple.mysql.database.db
+        simple.postgres.backup_database.backup_db
           EOF
         end
       end
@@ -1095,7 +1119,7 @@ Error 100: Unable to process links for deployment. Errors are:
           expect{deploy_simple_manifest(manifest_hash: manifest)}.to raise_error(RuntimeError, /Can't resolve link 'db' in instance group 'my_api' on job 'api_server' in deployment 'simple' and network 'global_network'./)
         end
 
-        context 'user has duplicate implicit links provided in two jobs over seprate networks' do
+        context 'user has duplicate implicit links provided in two jobs over separate networks' do
 
           let(:mysql_job_spec) do
             job_spec = Bosh::Spec::Deployments.simple_job(
@@ -1254,15 +1278,15 @@ Error 100: Unable to process links for deployment. Errors are:
 
         output_1, exit_code_1 = deploy_simple_manifest(manifest_hash: manifest, return_exit_code: true)
         expect(exit_code_1).to eq(0)
-        expect(output_1).to include("Started creating missing vms > deployment-job/0")
-        expect(output_1).to include("Started creating missing vms > mysql/0")
-        expect(output_1).to include("Started creating missing vms > mysql/1")
-        expect(output_1).to include("Started creating missing vms > postgres/0")
+        expect(output_1).to match(/Started creating missing vms > deployment-job\/[a-z0-9\-]+ \(0\)/)
+        expect(output_1).to match(/Started creating missing vms > mysql\/[a-z0-9\-]+ \(0\)/)
+        expect(output_1).to match(/Started creating missing vms > mysql\/[a-z0-9\-]+ \(1\)/)
+        expect(output_1).to match(/Started creating missing vms > postgres\/[a-z0-9\-]+ \(0\)/)
 
-        expect(output_1).to include("Started updating job deployment-job > deployment-job/0")
-        expect(output_1).to include("Started updating job mysql > mysql/0")
-        expect(output_1).to include("Started updating job mysql > mysql/1")
-        expect(output_1).to include("Started updating job postgres > postgres/0")
+        expect(output_1).to match(/Started updating instance deployment-job > deployment-job\/[a-z0-9\-]+ \(0\)/)
+        expect(output_1).to match(/Started updating instance mysql > mysql\/[a-z0-9\-]+ \(0\)/)
+        expect(output_1).to match(/Started updating instance mysql > mysql\/[a-z0-9\-]+ \(1\)/)
+        expect(output_1).to match(/Started updating instance postgres > postgres\/[a-z0-9\-]+ \(0\)/)
 
 
         # ####################################################################
@@ -1279,15 +1303,15 @@ Error 100: Unable to process links for deployment. Errors are:
 
         output_2, exit_code_2 = deploy_simple_manifest(manifest_hash: manifest, return_exit_code: true)
         expect(exit_code_2).to eq(0)
-        expect(output_2).to_not include("Started creating missing vms > deployment-job/0")
-        expect(output_2).to_not include("Started creating missing vms > mysql/0")
-        expect(output_2).to_not include("Started creating missing vms > mysql/1")
-        expect(output_2).to_not include("Started creating missing vms > postgres/0")
+        expect(output_2).to_not match(/Started creating missing vms > deployment-job\/[a-z0-9\-]+ \(0\)/)
+        expect(output_2).to_not match(/Started creating missing vms > mysql\/[a-z0-9\-]+ \(0\)/)
+        expect(output_2).to_not match(/Started creating missing vms > mysql\/[a-z0-9\-]+ \(1\)/)
+        expect(output_2).to_not match(/Started creating missing vms > postgres\/[a-z0-9\-]+ \(0\)/)
 
-        expect(output_2).to include("Started updating job deployment-job > deployment-job/0")
-        expect(output_2).to include("Started updating job mysql > mysql/0")
-        expect(output_2).to include("Started updating job mysql > mysql/1")
-        expect(output_2).to include("Started updating job postgres > postgres/0")
+        expect(output_2).to match(/Started updating instance deployment-job > deployment-job\/[a-z0-9\-]+ \(0\)/)
+        expect(output_2).to match(/Started updating instance mysql > mysql\/[a-z0-9\-]+ \(0\)/)
+        expect(output_2).to match(/Started updating instance mysql > mysql\/[a-z0-9\-]+ \(1\)/)
+        expect(output_2).to match(/Started updating instance postgres > postgres\/[a-z0-9\-]+ \(0\)/)
 
         current_deployments = bosh_runner.run("deployments")
         expect(current_deployments).to match_output %(
@@ -1310,19 +1334,97 @@ Error 100: Unable to process links for deployment. Errors are:
 
         output_3, exit_code_3 = deploy_simple_manifest(manifest_hash: manifest, return_exit_code: true)
         expect(exit_code_3).to eq(0)
-        expect(output_3).to_not include("Started creating missing vms > deployment-job/0")
-        expect(output_3).to_not include("Started creating missing vms > mysql/0")
-        expect(output_3).to_not include("Started creating missing vms > mysql/1")
-        expect(output_3).to_not include("Started creating missing vms > postgres/0")
+        expect(output_3).to_not match(/Started creating missing vms > deployment-job\/[a-z0-9\-]+ \(0\)/)
+        expect(output_3).to_not match(/Started creating missing vms > mysql\/[a-z0-9\-]+ \(0\)/)
+        expect(output_3).to_not match(/Started creating missing vms > mysql\/[a-z0-9\-]+ \(1\)/)
+        expect(output_3).to_not match(/Started creating missing vms > postgres\/[a-z0-9\-]+ \(0\)/)
 
-        expect(output_3).to include("Started updating job deployment-job > deployment-job/0")
-        expect(output_3).to include("Started updating job mysql > mysql/0")
-        expect(output_3).to include("Started updating job mysql > mysql/1")
-        expect(output_3).to include("Started updating job postgres > postgres/0")
+        expect(output_3).to match(/Started updating instance deployment-job > deployment-job\/[a-z0-9\-]+ \(0\)/)
+        expect(output_3).to match(/Started updating instance mysql > mysql\/[a-z0-9\-]+ \(0\)/)
+        expect(output_3).to match(/Started updating instance mysql > mysql\/[a-z0-9\-]+ \(1\)/)
+        expect(output_3).to match(/Started updating instance postgres > postgres\/[a-z0-9\-]+ \(0\)/)
       end
 
       it 'allows only the specified properties' do
         expect{ deploy_simple_manifest(manifest_hash: manifest) }.to_not raise_error
+      end
+    end
+
+    context 'when resurrector tries to resurrect an VM with jobs that consume links', hm: true do
+      before { current_sandbox.health_monitor_process.start }
+      after { current_sandbox.health_monitor_process.stop }
+
+      let(:links) do
+        {
+          'db' => {'from' => 'db'},
+          'backup_db' => {'from' => 'backup_db'}
+        }
+      end
+
+      it 'resurrects the VM and resolves links correctly', hm: true do
+        deploy_simple_manifest(manifest_hash: manifest)
+
+        vms = director.vms
+        api_vm = find_vm(vms, 'my_api', '0')
+        mysql_0_vm = find_vm(vms, 'mysql', '0')
+        mysql_1_vm = find_vm(vms, 'mysql', '1')
+
+        template = YAML.load(api_vm.read_job_template('api_server', 'config.yml'))
+
+        expect(template['databases']['main'].size).to eq(2)
+        expect(template['databases']['main']).to contain_exactly(
+           {
+             'id' => "#{mysql_0_vm.instance_uuid}",
+             'name' => 'mysql',
+             'index' => 0,
+             'address' => "#{mysql_0_vm.instance_uuid}.mysql.dynamic-network.simple.bosh"
+           },
+           {
+             'id' => "#{mysql_1_vm.instance_uuid}",
+             'name' => 'mysql',
+             'index' => 1,
+             'address' => "#{mysql_1_vm.instance_uuid}.mysql.dynamic-network.simple.bosh"
+           }
+         )
+
+        expect(template['databases']['backup']).to contain_exactly(
+           {
+             'name' => 'postgres',
+             'az' => 'z1',
+             'index' => 0,
+             'address' => '192.168.1.12'
+           }
+         )
+
+
+        # ===========================================
+        # After resurrection
+        new_api_vm = director.kill_vm_and_wait_for_resurrection(api_vm)
+        new_template = YAML.load(new_api_vm.read_job_template('api_server', 'config.yml'))
+        expect(new_template['databases']['main'].size).to eq(2)
+        expect(new_template['databases']['main']).to contain_exactly(
+           {
+             'id' => "#{mysql_0_vm.instance_uuid}",
+             'name' => 'mysql',
+             'index' => 0,
+             'address' => "#{mysql_0_vm.instance_uuid}.mysql.dynamic-network.simple.bosh"
+           },
+           {
+             'id' => "#{mysql_1_vm.instance_uuid}",
+             'name' => 'mysql',
+             'index' => 1,
+             'address' => "#{mysql_1_vm.instance_uuid}.mysql.dynamic-network.simple.bosh"
+           }
+         )
+
+        expect(new_template['databases']['backup']).to contain_exactly(
+           {
+             'name' => 'postgres',
+             'az' => 'z1',
+             'index' => 0,
+             'address' => '192.168.1.12'
+           }
+         )
       end
     end
   end
@@ -1481,9 +1583,9 @@ Error 100: Unable to process links for deployment. Errors are:
 
       expect(exit_code).not_to eq(0)
       expect(out).to include("Error 100: Unable to process links for deployment. Errors are:")
-      expect(out).to include("- \"Can't find link with type 'bad_link' for job 'api_server_with_bad_link_types' in deployment 'simple'\"")
-      expect(out).to include("- \"Can't find link with type 'bad_link_2' for job 'api_server_with_bad_link_types' in deployment 'simple'\"")
-      expect(out).to include("- \"Can't find link with type 'bad_link_3' for job 'api_server_with_bad_link_types' in deployment 'simple'\"")
+      expect(out).to include("- Can't find link with type 'bad_link' for job 'api_server_with_bad_link_types' in deployment 'simple'")
+      expect(out).to include("- Can't find link with type 'bad_link_2' for job 'api_server_with_bad_link_types' in deployment 'simple'")
+      expect(out).to include("- Can't find link with type 'bad_link_3' for job 'api_server_with_bad_link_types' in deployment 'simple'")
     end
   end
 end

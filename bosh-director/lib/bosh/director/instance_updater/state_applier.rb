@@ -9,7 +9,7 @@ module Bosh::Director
       @is_canary = options.fetch(:canary, false)
     end
 
-    def apply(update_config)
+    def apply(update_config, run_post_start = true)
       @instance.apply_vm_state(@instance_plan.spec)
       @instance.update_templates(@instance_plan.templates)
       @rendered_job_templates_cleaner.clean
@@ -23,7 +23,7 @@ module Bosh::Director
       end
 
       # for backwards compatibility with instances that don't have update config
-      if update_config
+      if update_config && run_post_start
         min_watch_time = @is_canary ? update_config.min_canary_watch_time : update_config.min_update_watch_time
         max_watch_time = @is_canary ? update_config.max_canary_watch_time : update_config.max_update_watch_time
 
@@ -62,17 +62,23 @@ module Bosh::Director
     def wait_until_desired_state(min_watch_time, max_watch_time)
       current_state = {}
       watch_schedule(min_watch_time, max_watch_time).each do |watch_time|
-        sleep_time = watch_time.to_f / 1000
-        @logger.info("Waiting for #{sleep_time} seconds to check #{@instance} status")
-        sleep(sleep_time)
-        @logger.info("Checking if #{@instance} has been updated after #{sleep_time} seconds")
+        begin
+          sleep_time = watch_time.to_f / 1000
+          Config.job_cancelled?
+          @logger.info("Waiting for #{sleep_time} seconds to check #{@instance} status")
+          sleep(sleep_time)
+          @logger.info("Checking if #{@instance} has been updated after #{sleep_time} seconds")
 
-        current_state = @agent_client.get_state
+          current_state = @agent_client.get_state
 
-        if @instance.state == 'started'
-          break if current_state['job_state'] == 'running'
-        elsif @instance.state == 'stopped'
-          break if current_state['job_state'] != 'running'
+          if @instance.state == 'started'
+            break if current_state['job_state'] == 'running'
+          elsif @instance.state == 'stopped'
+            break if current_state['job_state'] != 'running'
+          end
+        rescue Bosh::Director::TaskCancelled
+          @logger.debug("Task was cancelled. Stop waiting for the desired state")
+          raise
         end
       end
 
@@ -83,7 +89,7 @@ module Bosh::Director
     # on the [min_watch_time..max_watch_time] interval.
     #
     # Tries to respect intervals but doesn't allow an interval to
-    # fall under 1 second.
+    # fall below 1 second or go over 15 seconds.
     # All times are in milliseconds.
     # @param [Numeric] min_watch_time minimum time to watch the jobs
     # @param [Numeric] max_watch_time maximum time to watch the jobs
@@ -91,7 +97,7 @@ module Bosh::Director
     def watch_schedule(min_watch_time, max_watch_time)
       delta = (max_watch_time - min_watch_time).to_f
       watch_intervals = 10
-      step = [1000, delta / (watch_intervals - 1)].max
+      step = [1000, delta / (watch_intervals - 1), 15000].sort[1]
 
       [min_watch_time] + ([step] * (delta / step).floor)
     end

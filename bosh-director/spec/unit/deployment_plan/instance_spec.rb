@@ -18,14 +18,14 @@ module Bosh::Director::DeploymentPlan
     end
 
     let(:deployment) { Bosh::Director::Models::Deployment.make(name: 'fake-deployment') }
-    let(:network_resolver) { GlobalNetworkResolver.new(plan) }
+    let(:network_resolver) { GlobalNetworkResolver.new(plan, [], logger) }
     let(:job) do
-      instance_double('Bosh::Director::DeploymentPlan::Job',
+      instance_double('Bosh::Director::DeploymentPlan::InstanceGroup',
         vm_type: vm_type,
         stemcell: stemcell,
         env: env,
         name: 'fake-job',
-        persistent_disk_type: disk_type,
+        persistent_disk_collection: PersistentDiskCollection.new(logger),
         compilation?: false,
         is_errand?: false,
         vm_extensions: vm_extensions
@@ -35,7 +35,6 @@ module Bosh::Director::DeploymentPlan
     let(:vm_extensions) {[]}
     let(:stemcell) { make_stemcell({:name => 'fake-stemcell-name', :version => '1.0'}) }
     let(:env) { Env.new({'key' => 'value'}) }
-    let(:disk_type) { nil }
     let(:net) { instance_double('Bosh::Director::DeploymentPlan::Network', name: 'net_a') }
     let(:availability_zone) { Bosh::Director::DeploymentPlan::AvailabilityZone.new('foo-az', {'a' => 'b'}) }
 
@@ -45,7 +44,7 @@ module Bosh::Director::DeploymentPlan
     let(:desired_instance) { DesiredInstance.new(job, current_state, plan, availability_zone, 1)}
 
     describe '#bind_existing_instance_model' do
-      let(:job) { Job.new(logger) }
+      let(:job) { InstanceGroup.new(logger) }
 
       let(:network) do
         instance_double('Bosh::Director::DeploymentPlan::Network', name: 'fake-network', reserve: nil)
@@ -79,7 +78,7 @@ module Bosh::Director::DeploymentPlan
     end
 
     context 'applying state' do
-      let(:job) { Job.new(logger) }
+      let(:job) { InstanceGroup.new(logger) }
 
       let(:agent_client) { instance_double('Bosh::Director::AgentClient') }
 
@@ -89,7 +88,22 @@ module Bosh::Director::DeploymentPlan
       end
 
       describe 'apply_vm_state' do
-        let(:state) do
+        let(:full_spec) do
+          {
+            'deployment' => 'fake-deployment',
+            'job' => 'fake-job-spec',
+            'index' => 0,
+            'env' => {},
+            'id' => 'uuid-1',
+            'networks' => {'fake-network' => {'fake-network-settings' => {}}},
+            'packages' => {},
+            'configuration_hash' => 'fake-desired-configuration-hash',
+            'dns_domain_name' => 'test-domain',
+            'persistent_disk' => 0,
+            'properties' => {},
+          }
+        end
+        let(:apply_spec) do
           {
             'deployment' => 'fake-deployment',
             'job' => 'fake-job-spec',
@@ -99,15 +113,16 @@ module Bosh::Director::DeploymentPlan
             'packages' => {},
             'configuration_hash' => 'fake-desired-configuration-hash',
             'dns_domain_name' => 'test-domain',
-            'persistent_disk' => 0
+            'persistent_disk' => 0,
+            'properties' => {},
           }
         end
-        let(:instance_spec) { InstanceSpec.new(state, instance) }
+        let(:instance_spec) { InstanceSpec.new(full_spec, instance) }
 
         it 'updates the model with the spec, applies to state to the agent, and sets the current state of the instance' do
-          expect(agent_client).to receive(:apply).with(state).ordered
+          expect(agent_client).to receive(:apply).with(apply_spec).ordered
           instance.apply_vm_state(instance_spec)
-          expect(instance_model.spec).to eq(state)
+          expect(instance_model.spec).to eq(full_spec)
         end
       end
 
@@ -139,8 +154,8 @@ module Bosh::Director::DeploymentPlan
           expect(agent_client).to receive(:get_state).and_return(agent_state).ordered
 
           instance.apply_initial_vm_state(instance_spec)
-          expect(instance_model.spec['networks']).to eq({'changed' => {}})
-          expect(instance_model.spec['env']).to eq('fake-env')
+          expect(instance_model.spec_p('networks')).to eq({'changed' => {}})
+          expect(instance_model.spec_p('env')).to eq('fake-env')
         end
       end
     end
@@ -330,6 +345,46 @@ module Bosh::Director::DeploymentPlan
 
       end
     end
+
+    describe '#update_instance_settings' do
+      let(:fake_cert) { 'super trustworthy cert' }
+      let(:persistent_disk_model) { instance_double(Bosh::Director::Models::PersistentDisk, name: 'some-disk', disk_cid: 'some-cid')}
+      let(:disk_collection_model) { instance_double(Bosh::Director::DeploymentPlan::PersistentDiskCollection::ModelPersistentDisk, model: persistent_disk_model)}
+      let(:active_persistent_disks) { instance_double(Bosh::Director::DeploymentPlan::PersistentDiskCollection, collection: [disk_collection_model]) }
+      let(:agent_client) { instance_double(Bosh::Director::AgentClient) }
+
+      before do
+        allow(instance_model).to receive(:active_persistent_disks).and_return(active_persistent_disks)
+        allow(Bosh::Director::AgentClient).to receive(:with_vm_credentials_and_agent_id).with(instance_model.credentials, instance_model.agent_id).and_return(agent_client)
+        allow(Bosh::Director::Config).to receive(:trusted_certs).and_return(fake_cert)
+        instance.bind_existing_instance_model(instance_model)
+      end
+
+      context 'when there are non managed disks' do
+        before do
+          allow(persistent_disk_model).to receive(:managed?).and_return(false)
+        end
+
+        it 'tells the agent to update instance settings and updates the instance model' do
+          expect(agent_client).to receive(:update_settings).with(fake_cert, [{'name' => 'some-disk', 'cid' => 'some-cid'}])
+          instance.update_instance_settings
+          expect(instance.model.trusted_certs_sha1).to eq(Digest::SHA1.hexdigest(fake_cert))
+        end
+      end
+
+      context 'when all disks are managed' do
+        before do
+          allow(persistent_disk_model).to receive(:managed?).and_return(true)
+        end
+
+        it 'does not send any disk associations to update' do
+          expect(agent_client).to receive(:update_settings).with(fake_cert, [])
+          instance.update_instance_settings
+          expect(instance.model.trusted_certs_sha1).to eq(Digest::SHA1.hexdigest(fake_cert))
+        end
+      end
+    end
+
 
     describe '#update_cloud_properties' do
       it 'saves the cloud properties' do

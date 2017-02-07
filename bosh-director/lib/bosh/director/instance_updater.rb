@@ -7,13 +7,13 @@ module Bosh::Director
     def self.new_instance_updater(ip_provider)
       logger = Config.logger
       cloud = Config.cloud
-      vm_deleter = VmDeleter.new(cloud, logger)
       disk_manager = DiskManager.new(cloud, logger)
       job_renderer = JobRenderer.create
-      arp_flusher = ArpFlusher.new
-      vm_creator = VmCreator.new(cloud, logger, vm_deleter, disk_manager, job_renderer, arp_flusher)
-      vm_recreator = VmRecreator.new(vm_creator, vm_deleter)
+      agent_broadcaster = AgentBroadcaster.new
       dns_manager = DnsManagerProvider.create
+      vm_deleter = VmDeleter.new(cloud, logger, false, Config.enable_virtual_delete_vms)
+      vm_creator = VmCreator.new(cloud, logger, vm_deleter, disk_manager, job_renderer, agent_broadcaster)
+      vm_recreator = VmRecreator.new(vm_creator, vm_deleter)
       new(
         cloud,
         logger,
@@ -46,7 +46,7 @@ module Bosh::Director
       parent_id = add_event(instance.deployment_model.name, action, instance.model.name, context) if instance_plan.changed?
       @logger.info("Updating instance #{instance}, changes: #{instance_plan.changes.to_a.join(', ').inspect}")
 
-      InstanceUpdater::InstanceState.with_instance_update(instance.model) do
+      update_procedure = lambda do
         # Optimization to only update DNS if nothing else changed.
         if dns_change_only?(instance_plan)
           @logger.debug('Only change is DNS configuration')
@@ -54,16 +54,23 @@ module Bosh::Director
           return
         end
 
-        unless instance_plan.currently_detached?
+        unless instance_plan.already_detached?
           Preparer.new(instance_plan, agent(instance), @logger).prepare
 
-          stop(instance_plan)
-          take_snapshot(instance)
+          unless instance.model.state == 'stopped'
+            stop(instance_plan)
+            take_snapshot(instance)
+          end
+
+          if instance.state == 'stopped'
+            instance.update_state
+            return
+          end
         end
 
         if instance.state == 'detached'
           @logger.info("Detaching instance #{instance}")
-          unless instance_plan.currently_detached?
+          unless instance_plan.already_detached?
             @disk_manager.unmount_disk_for(instance_plan)
             instance_model = instance_plan.new? ? instance_plan.instance.model : instance_plan.existing_instance
             @vm_deleter.delete_for_instance(instance_model)
@@ -75,17 +82,11 @@ module Bosh::Director
 
         recreated = false
         if needs_recreate?(instance_plan)
-          begin
-            recreate_parent_id = add_event(instance.deployment_model.name, 'recreate', instance.model.name, nil) if action == 'update'
-            @logger.debug('Failed to update in place. Recreating VM')
-            @disk_manager.unmount_disk_for(instance_plan)
-            @vm_recreator.recreate_vm(instance_plan, nil)
-            recreated = true
-          rescue Exception => e
-            raise e
-          ensure
-            add_event(instance.deployment_model.name, 'recreate', instance.model.name, nil, recreate_parent_id, e) if recreate_parent_id
-          end
+          @logger.debug('Failed to update in place. Recreating VM')
+          @disk_manager.unmount_disk_for(instance_plan) unless instance_plan.needs_to_fix?
+          tags = instance_plan.tags
+          @vm_recreator.recreate_vm(instance_plan, nil, tags)
+          recreated = true
         end
 
         release_obsolete_ips(instance_plan)
@@ -94,10 +95,7 @@ module Bosh::Director
         @disk_manager.update_persistent_disk(instance_plan)
 
         unless recreated
-          if instance.trusted_certs_changed?
-            @logger.debug('Updating trusted certs')
-            instance.update_trusted_certs
-          end
+          instance.update_instance_settings
         end
 
         cleaner = RenderedJobTemplatesCleaner.new(instance.model, @blobstore, @logger)
@@ -108,12 +106,9 @@ module Bosh::Director
           @logger,
           canary: options[:canary]
         )
-        state_applier.apply(instance_plan.desired_instance.job.update)
+        state_applier.apply(instance_plan.desired_instance.instance_group.update)
       end
-    rescue Exception => e
-      raise e
-    ensure
-      add_event(instance.deployment_model.name, action, instance.model.name, nil, parent_id, e) if parent_id
+      InstanceUpdater::InstanceState.with_instance_update_and_event_creation(instance.model, parent_id, instance.deployment_model.name, action, &update_procedure)
     end
 
     private
@@ -137,7 +132,8 @@ module Bosh::Director
 
     def get_action_and_context(instance_plan)
       changes = instance_plan.changes
-      if changes.size == 1 && [:state,:recreate,:restart].include?(changes.first)
+      context = {}
+      if changes.size == 1 && [:state, :restart].include?(changes.first)
         action = case instance_plan.instance.virtual_state
           when 'started'
             'start'
@@ -148,16 +144,16 @@ module Bosh::Director
           else
             instance_plan.instance.virtual_state
         end
-       return action , {}
       else
+        context['az'] = instance_plan.desired_az_name if instance_plan.desired_az_name
         if instance_plan.new?
-          return 'create', {}
+          action = 'create'
         else
-          context = {changes: changes.to_a}
-          context['az'] = instance_plan.desired_az_name if instance_plan.desired_az_name
-          return 'update', context
+          context['changes'] = changes.to_a unless changes.size == 1 && changes.first == :recreate
+          action = needs_recreate?(instance_plan) ? 'recreate' : 'update'
         end
       end
+      return action, context
     end
 
     def release_obsolete_ips(instance_plan)
@@ -183,6 +179,7 @@ module Bosh::Director
     def update_dns(instance_plan)
       instance = instance_plan.instance
 
+      @dns_manager.publish_dns_records
       return unless instance_plan.dns_changed?
 
       @dns_manager.update_dns_record_for_instance(instance.model, instance_plan.network_settings.dns_record_info)

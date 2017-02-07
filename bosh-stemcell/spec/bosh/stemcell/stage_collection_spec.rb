@@ -36,11 +36,13 @@ module Bosh::Stemcell
               :system_kernel_modules,
               :system_ixgbevf,
               :bosh_sysctl,
+              :bosh_limits,
               :bosh_users,
               :bosh_monit,
               :bosh_ntpdate,
               :bosh_sudoers,
               :password_policies,
+              :restrict_su_command,
               :tty_config,
               :rsyslog_config,
               :delay_monit_start,
@@ -48,7 +50,9 @@ module Bosh::Stemcell
               :vim_tiny,
               :cron_config,
               :escape_ctrl_alt_del,
+              :system_users,
               :bosh_audit,
+              :bosh_log_audit_start,
             ].reject{ |s| Bosh::Stemcell::Arch.ppc64le? and s ==  :system_ixgbevf }
           )
         end
@@ -68,11 +72,13 @@ module Bosh::Stemcell
               :system_kernel_modules,
               :system_ixgbevf,
               :bosh_sysctl,
+              :bosh_limits,
               :bosh_users,
               :bosh_monit,
               :bosh_ntpdate,
               :bosh_sudoers,
               :password_policies,
+              :restrict_su_command,
               :tty_config,
               :rsyslog_config,
               :delay_monit_start,
@@ -80,6 +86,7 @@ module Bosh::Stemcell
               :cron_config,
               :escape_ctrl_alt_del,
               :bosh_audit,
+              :bosh_log_audit_start
             ]
           )
         end
@@ -98,6 +105,7 @@ module Bosh::Stemcell
               :base_ssh,
               :system_kernel_modules,
               :bosh_sysctl,
+              :bosh_limits,
               :bosh_users,
               :bosh_monit,
               :bosh_ntpdate,
@@ -118,13 +126,12 @@ module Bosh::Stemcell
 
       let(:agent_stages) do
         [
-          :bosh_ruby,
+          :bosh_libyaml,
           :bosh_go_agent,
-          :bosh_micro_go,
           :aws_cli,
           :logrotate_config,
           :dev_tools_config,
-        ].reject{ |s| Bosh::Stemcell::Arch.ppc64le? and [:bosh_ruby, :bosh_micro_go].include?(s) }
+        ]
       end
 
       it 'returns the correct stages' do
@@ -421,6 +428,7 @@ module Bosh::Stemcell
             :system_azure_network,
             :system_azure_wala,
             :system_parameters,
+            :enable_udf_module,
             :bosh_clean,
             :bosh_harden,
             :bosh_azure_agent_settings,
@@ -468,7 +476,6 @@ module Bosh::Stemcell
                 :system_network,
                 :system_softlayer_open_iscsi,
                 :system_softlayer_multipath_tools,
-                :disable_blank_passwords,
                 :system_parameters,
                 :bosh_clean,
                 :bosh_harden,

@@ -1,6 +1,8 @@
 module Bosh::Director
   module Api
     class EventManager
+    include SyslogHelper
+
       def initialize(record_events)
         @record_events = record_events
       end
@@ -33,23 +35,25 @@ module Bosh::Director
         object_type = options[:object_type]
         object_name = options.fetch(:object_name, nil)
         task        = options.fetch(:task, nil)
-        error       = options.fetch(:error){ |error| error ? error.to_s: nil }
+        error       = options.fetch(:error, nil)
         deployment  = options.fetch(:deployment, nil)
         instance    = options.fetch(:instance, nil)
         context     = options.fetch(:context, {})
 
-        Models::Event.create(
+        event = Models::Event.create(
             parent_id:   parent_id,
             timestamp:   Time.now,
             user:        user,
             action:      action,
             object_type: object_type,
             object_name: object_name,
-            error:       error,
+            error:       error ? error.to_s : nil,
             task:        task,
             deployment:  deployment,
             instance:    instance,
             context:     context)
+        syslog(:info, JSON.generate(event.to_hash))
+        event
       end
 
       def remove_old_events (max_events = 10000)

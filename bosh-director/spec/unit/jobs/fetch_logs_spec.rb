@@ -8,6 +8,7 @@ module Bosh::Director
 
     describe 'DJ job class expectations' do
       let(:job_type) { :fetch_logs }
+      let(:queue) { :normal }
       it_behaves_like 'a DJ job'
     end
 
@@ -91,7 +92,7 @@ module Bosh::Director
         it 'raises an exception because there is no agent to contact' do
           expect {
             fetch_logs.perform
-          }.to raise_error(InstanceVmMissing, "'fake-job-name/42 (#{instance.uuid})' doesn't reference a VM")
+          }.to raise_error(InstanceVmMissing, "'fake-job-name/#{instance.uuid} (42)' doesn't reference a VM")
         end
       end
     end

@@ -3,7 +3,7 @@ require 'spec_helper'
 module Bosh::Director
   describe Errand::Runner do
     subject { described_class.new(job, result_file, instance_manager, logs_fetcher) }
-    let(:job) { instance_double('Bosh::Director::DeploymentPlan::Job', name: 'fake-job-name') }
+    let(:job) { instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', name: 'fake-job-name') }
     let(:result_file) { instance_double('Bosh::Director::TaskResultFile') }
     let(:instance_manager) { Bosh::Director::Api::InstanceManager.new }
     let(:logs_fetcher) { instance_double('Bosh::Director::LogsFetcher') }
@@ -223,7 +223,7 @@ module Bosh::Director
           before { instance1_model.update(vm_cid: nil) }
 
           it 'raises an error' do
-            expect { subject.run }.to raise_error(InstanceVmMissing, "'fake-job-name/#{instance1_model.index} (#{instance1_model.uuid})' doesn't reference a VM")
+            expect { subject.run }.to raise_error(InstanceVmMissing, "'fake-job-name/#{instance1_model.uuid} (#{instance1_model.index})' doesn't reference a VM")
           end
         end
       end

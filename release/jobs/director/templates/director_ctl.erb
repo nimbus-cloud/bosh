@@ -2,16 +2,15 @@
 
 RUN_DIR=/var/vcap/sys/run/director
 LOG_DIR=/var/vcap/sys/log/director
-STORE_DIR=/var/vcap/store/director
 
 PIDFILE=$RUN_DIR/director.pid
 RUNAS=vcap
 
-PATH=/var/vcap/packages/ruby/bin:/var/vcap/packages/genisoimage:$PATH
+PATH=/var/vcap/packages/ruby/bin:$PATH
 PATH=$PATH:/var/vcap/jobs/director/bin
 
 # Postgres
-PATH=/var/vcap/packages/postgres/bin:$PATH
+PATH=/var/vcap/packages/postgres-9.4/bin:/var/vcap/packages/postgres/bin:$PATH
 LD_LIBRARY_PATH=/var/vcap/packages/libpq/lib:$LD_LIBRARY_PATH
 
 # MySQL
@@ -22,7 +21,7 @@ export LD_LIBRARY_PATH
 export PATH
 
 export BUNDLE_GEMFILE=/var/vcap/packages/director/Gemfile
-export GEM_HOME=/var/vcap/packages/director/gem_home/ruby/2.1.0
+export GEM_HOME=/var/vcap/packages/director/gem_home/ruby/2.3.0
 
 export TMPDIR=/var/vcap/data/tmp/director
 
@@ -30,16 +29,16 @@ export C_INCLUDE_PATH=/var/vcap/packages/sqlite/include:/var/vcap/packages/libpq
 export LIBRARY_PATH=/var/vcap/packages/sqlite/lib:/var/vcap/packages/libpq/lib:/var/vcap/packages/mysqlclient/lib:$LIBRARY_PATH
 
 <% if_p('env.http_proxy') do |http_proxy| %>
-export HTTP_PROXY=<%= http_proxy %>
-export http_proxy=<%= http_proxy %>
+export HTTP_PROXY="<%= http_proxy %>"
+export http_proxy="<%= http_proxy %>"
 <% end %>
 <% if_p('env.https_proxy') do |https_proxy| %>
-export HTTPS_PROXY=<%= https_proxy %>
-export https_proxy=<%= https_proxy %>
+export HTTPS_PROXY="<%= https_proxy %>"
+export https_proxy="<%= https_proxy %>"
 <% end %>
 <% if_p('env.no_proxy') do |no_proxy| %>
-export NO_PROXY=<%= no_proxy %>
-export no_proxy=<%= no_proxy %>
+export NO_PROXY="<%= no_proxy %>"
+export no_proxy="<%= no_proxy %>"
 <% end %>
 
 function pid_exists() {
@@ -49,8 +48,8 @@ function pid_exists() {
 case $1 in
 
   start)
-    mkdir -p $RUN_DIR $LOG_DIR $STORE_DIR $TMPDIR
-    chown -R $RUNAS:$RUNAS $RUN_DIR $LOG_DIR $STORE_DIR $TMPDIR
+    mkdir -p $RUN_DIR $LOG_DIR $TMPDIR
+    chown -R $RUNAS:$RUNAS $RUN_DIR $LOG_DIR $TMPDIR
 
     # This hackery is needed until we have a way to manage things outside
     # the /var/vcap directory. Requires stemcell 0.5.4 or later

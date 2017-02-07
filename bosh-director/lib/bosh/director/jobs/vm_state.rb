@@ -3,7 +3,7 @@ module Bosh::Director
     class VmState < BaseJob
       TIMEOUT = 5
 
-      @queue = :normal
+      @queue = :urgent
 
       def self.job_type
         :vms
@@ -34,19 +34,20 @@ module Bosh::Director
       def process_instance(instance)
         dns_records = []
 
-        job_state, job_vitals, processes, ips, drbd = vm_details(instance)
+        job_state, job_vitals, processes, _, drbd = vm_details(instance)
 
         if dns_manager.dns_enabled?
           dns_records = dns_manager.find_dns_record_names_by_instance(instance)
           dns_records.sort_by! { |name| -(name.split('.').first.length) }
         end
 
-        vm_type_name = instance.spec && instance.spec['vm_type'] ? instance.spec['vm_type']['name'] : nil
+        vm_type_name = instance.spec_p('vm_type.name')
 
         {
           :vm_cid => instance.vm_cid,
-          :disk_cid => instance.persistent_disk_cid,
-          :ips => ips,
+          :disk_cid => instance.managed_persistent_disk_cid,
+          :disk_cids => instance.active_persistent_disks.collection.map{|d| d.model.disk_cid},
+          :ips => ips(instance),
           :dns => dns_records,
           :agent_id => instance.agent_id,
           :job_name => instance.job,
@@ -61,11 +62,20 @@ module Bosh::Director
           :az => instance.availability_zone,
           :id => instance.uuid,
           :bootstrap => instance.bootstrap,
+          :ignore => instance.ignore,
           :drbd => drbd
         }
       end
 
       private
+
+      def ips(instance)
+        result = instance.ip_addresses.map {|ip| NetAddr::CIDR.create(ip.address).ip }
+        if result.empty? && instance.spec
+          result = instance.spec['networks'].map {|_, network| network['ip']}
+        end
+        result
+      end
 
       def vm_details(instance)
         ips = []

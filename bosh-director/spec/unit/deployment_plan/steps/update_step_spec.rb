@@ -14,14 +14,15 @@ module Bosh::Director
       instance_double('Bosh::Director::DeploymentPlan::Planner',
         update_stemcell_references!: nil,
         persist_updates!: nil,
-        jobs_starting_on_deploy: [],
+        instance_groups_starting_on_deploy: [],
         instance_plans_with_missing_vms: [],
         ip_provider: ip_provider,
         skip_drain: skip_drain,
-        recreate: false
+        recreate: false,
+        tags: {}
       )
     end
-    let(:cloud) { instance_double('Bosh::Cloud', delete_vm: nil) }
+    let(:cloud) { Config.cloud }
     let(:manifest) { ManifestHelper.default_legacy_manifest }
     let(:releases) { [] }
     let(:multi_job_updater) { instance_double('Bosh::Director::DeploymentPlan::SerialMultiJobUpdater', run: nil) }
@@ -30,7 +31,6 @@ module Bosh::Director
       allow(base_job).to receive(:logger).and_return(logger)
       allow(base_job).to receive(:track_and_log).and_yield
       allow(Bosh::Director::Config).to receive(:dns_enabled?).and_return(true)
-      allow(Bosh::Director::Config).to receive(:cloud).and_return(cloud)
       allow(base_job).to receive(:task_id).and_return(task.id)
       allow(Bosh::Director::Config).to receive(:current_job).and_return(base_job)
       allow(Bosh::Director::Config).to receive(:record_events).and_return(true)
@@ -38,19 +38,20 @@ module Bosh::Director
     end
 
     describe '#perform' do
-      let(:job1) { instance_double('Bosh::Director::DeploymentPlan::Job', instances: [instance1, instance2]) }
-      let(:job2) { instance_double('Bosh::Director::DeploymentPlan::Job', instances: [instance3]) }
+      let(:job1) { instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', instances: [instance1, instance2]) }
+      let(:job2) { instance_double('Bosh::Director::DeploymentPlan::InstanceGroup', instances: [instance3]) }
       let(:instance1) { instance_double('Bosh::Director::DeploymentPlan::Instance') }
       let(:instance2) { instance_double('Bosh::Director::DeploymentPlan::Instance') }
       let(:instance3) { instance_double('Bosh::Director::DeploymentPlan::Instance') }
 
       before do
-        allow(deployment_plan).to receive(:unneeded_instances).and_return([])
+        allow(deployment_plan).to receive(:unneeded_instance_plans).and_return([])
       end
 
       def it_deletes_unneeded_instances
         existing_instance = Models::Instance.make
-        allow(deployment_plan).to receive(:unneeded_instances).and_return([existing_instance])
+        existing_instance_plan = instance_double(DeploymentPlan::InstancePlan, existing_instance: existing_instance)
+        allow(deployment_plan).to receive(:unneeded_instance_plans).and_return([existing_instance_plan])
 
         event_log_stage = instance_double('Bosh::Director::EventLog::Stage')
         expect(Config.event_log).to receive(:begin_stage)
@@ -69,7 +70,7 @@ module Bosh::Director
       it 'runs deployment plan update stages in the correct order' do
         event_log_stage = instance_double('Bosh::Director::EventLog::Stage')
         allow(event_log_stage).to receive(:advance_and_track).and_yield
-        allow(deployment_plan).to receive(:jobs_starting_on_deploy).with(no_args).and_return([job1, job2])
+        allow(deployment_plan).to receive(:instance_groups_starting_on_deploy).with(no_args).and_return([job1, job2])
 
         it_deletes_unneeded_instances.ordered
         expect(base_job).to receive(:task_checkpoint).with(no_args).ordered
@@ -83,10 +84,11 @@ module Bosh::Director
 
         before do
           existing_instance = Models::Instance.make(vm_cid: 'vm_cid')
-          allow(deployment_plan).to receive(:unneeded_instances).and_return([existing_instance])
+          existing_instance_plan = instance_double(DeploymentPlan::InstancePlan, existing_instance: existing_instance, new?: false, needs_to_fix?: true)
+          allow(deployment_plan).to receive(:unneeded_instance_plans).and_return([existing_instance_plan])
+
           agent_client = instance_double(AgentClient, drain: 0, stop: nil)
           allow(AgentClient).to receive(:with_vm_credentials_and_agent_id).and_return(agent_client)
-
           expect(cloud).to receive(:delete_vm).with('vm_cid').and_raise(some_error)
         end
 

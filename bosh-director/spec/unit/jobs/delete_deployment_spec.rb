@@ -9,24 +9,29 @@ module Bosh::Director
     let(:job_options) { {} }
     let(:task) {Bosh::Director::Models::Task.make(:id => 42, :username => 'user')}
     before do
-      allow(Bosh::Director::Config).to receive(:cloud).and_return(cloud)
       allow(Bosh::Director::Config).to receive(:record_events).and_return(true)
       allow(App).to receive_message_chain(:instance, :blobstores, :blobstore).and_return(blobstore)
       allow(job).to receive(:task_id).and_return(task.id)
       allow(Time).to receive_messages(now: Time.parse('2016-02-15T09:55:40+00:00'))
     end
 
-    let(:cloud) { instance_double('Bosh::Cloud') }
-
     let(:blobstore) { instance_double('Bosh::Blobstore::Client') }
 
     describe 'DJ job class expectations' do
       let(:job_type) { :delete_deployment }
+      let(:queue) { :normal }
       it_behaves_like 'a DJ job'
     end
 
     it 'should fail if the deployment is not found' do
       expect { job.perform }.to raise_exception DeploymentNotFound
+    end
+
+    it 'fails when ignored instances exist in the to-be-deleted deployment' do
+      deployment = Bosh::Director::Models::Deployment.make(name: 'test_deployment')
+      BD::Models::Instance.make(deployment: deployment,job: 'foo-job', index: 0, ignore: true)
+      expect { job.perform }.to raise_exception DeploymentIgnoredInstancesDeletion, "You are trying to delete deployment 'test_deployment', " +
+          'which contains ignored instance(s). Operation not allowed.'
     end
 
     it 'should store new events' do

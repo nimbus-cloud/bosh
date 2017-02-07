@@ -53,9 +53,9 @@ module Bosh::Director
 
         release = planner.release(@release_name)
 
-        export_release_job = create_job_with_all_the_templates_so_everything_compiles(release_version_model, release, planner, deployment_plan_stemcell)
-        planner.add_job(export_release_job)
-        planner.bind_models(true)
+        export_release_job = create_job_with_all_the_templates_so_everything_compiles(release_version_model, release, deployment_plan_stemcell)
+        planner.add_instance_group(export_release_job)
+        planner.bind_models({:should_bind_links=>false, :should_bind_properties=>false})
 
         lock_timeout = 15 * 60 # 15 minutes
 
@@ -75,7 +75,7 @@ module Bosh::Director
       private
 
       def deployment_manifest_has_release?(manifest)
-        deployment_manifest = Psych.load(manifest)
+        deployment_manifest = YAML.load(manifest)
         deployment_manifest['releases'].each do |release|
           if (release['name'] == @release_name) && (release['version'].to_s == @release_version.to_s)
             return true
@@ -105,25 +105,31 @@ module Bosh::Director
 
         oid = blobstore_client.create(tarball_file)
 
+        tarball_hexdigest = Digest::SHA1.file(output_path).hexdigest
+
+        Bosh::Director::Models::EphemeralBlob.new(
+            blobstore_id: oid,
+            sha1: tarball_hexdigest
+        ).save
+
         {
-          :blobstore_id => oid,
-          :sha1 => Digest::SHA1.file(output_path).hexdigest,
+            :blobstore_id => oid,
+            :sha1 => tarball_hexdigest,
         }
       ensure
         compiled_release_downloader.cleanup unless compiled_release_downloader.nil?
       end
 
-      def create_job_with_all_the_templates_so_everything_compiles(release_version_model, release, planner, deployment_plan_stemcell)
-        job = DeploymentPlan::Job.new(logger)
+      def create_job_with_all_the_templates_so_everything_compiles(release_version_model, release, deployment_plan_stemcell)
+        instance_group = DeploymentPlan::InstanceGroup.new(logger)
 
-        job.name = 'dummy-job-for-compilation'
-        job.stemcell = deployment_plan_stemcell
-        job.all_properties = planner.properties
+        instance_group.name = 'dummy-job-for-compilation'
+        instance_group.stemcell = deployment_plan_stemcell
         release_version_model.templates.map do |template|
-          job.templates << release.get_or_create_template(template.name)
+          instance_group.jobs << release.get_or_create_template(template.name)
         end
 
-        job
+        instance_group
       end
     end
   end

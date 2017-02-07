@@ -48,7 +48,7 @@ module Bosh::Cli::Command
         headings += ['VM Type', 'IPs']
 
         if options[:details]
-          headings += ['CID', 'Agent ID', 'Resurrection']
+          headings += ['CID', 'Agent ID', 'Resurrection', 'Ignore']
         end
         if options[:dns]
           headings += ['DNS A records']
@@ -67,7 +67,7 @@ module Bosh::Cli::Command
         sorted.each do |vm|
           job_name = vm['job_name'] || 'unknown'
           job_index = vm['index'] || 'unknown'
-          job = vm.has_key?('id') ? "#{job_name}/#{job_index} (#{vm['id']})" : "#{job_name}/#{job_index}"
+          job = vm.has_key?('id') ? "#{job_name}/#{vm['id']} (#{job_index})" : "#{job_name}/#{job_index}"
           ips = Array(vm['ips']).join("\n")
           dns_records = Array(vm['dns']).join("\n")
           vitals = vm['vitals']
@@ -87,7 +87,7 @@ module Bosh::Cli::Command
           row << ips
 
           if options[:details]
-            row += [vm['vm_cid'], vm['agent_id'], vm['resurrection_paused'] ? 'paused' : 'active']
+            row += [vm['vm_cid'], vm['agent_id'], vm['resurrection_paused'] ? 'paused' : 'active', vm['ignore'].nil? ? 'n/a' : vm['ignore']]
           end
 
           if options[:dns]

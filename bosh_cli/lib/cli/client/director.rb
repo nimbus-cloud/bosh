@@ -29,7 +29,7 @@ module Bosh
           end
 
           @director_uri        = URI.parse(director_uri)
-          @director_ip         = Resolv.getaddresses(@director_uri.host).last
+          @director_host       = @director_uri.host
           @scheme              = @director_uri.scheme
           @port                = @director_uri.port
           @credentials         = credentials
@@ -127,7 +127,9 @@ module Bosh
         def list_events(options={})
           query_string = "/events"
           delimeter = "?"
-          [:before_id, :deployment, :instance, :task].each do |param|
+          options[:before_time] = URI.encode(options.delete(:before)) if options[:before]
+          options[:after_time] = URI.encode(options.delete(:after)) if options[:after]
+          [:before_id, :deployment, :instance, :task, :before_time, :after_time].each do |param|
             if options[param]
               query_string += "#{delimeter}#{ param.to_s}=#{options[param]}"
               delimeter = "&"
@@ -268,12 +270,18 @@ module Bosh
           request_and_track(:delete, add_query_string(url, extras), options)
         end
 
+        def delete_vm_by_cid(vm_cid)
+          request_and_track(:delete, "/vms/#{vm_cid}")
+        end
+
         def deploy(manifest_yaml, options = {})
           options = options.dup
 
           recreate               = options.delete(:recreate)
           skip_drain             = options.delete(:skip_drain)
           context                = options.delete(:context)
+          dry_run                = options.delete(:dry_run)
+          fix                    = options.delete(:fix)
           options[:content_type] = 'text/yaml'
           options[:payload]      = manifest_yaml
 
@@ -283,6 +291,8 @@ module Bosh
           extras << ['recreate', 'true'] if recreate
           extras << ['context', JSON.dump(context)] if context
           extras << ['skip_drain', skip_drain] if skip_drain
+          extras << ['dry_run', dry_run] if dry_run
+          extras << ['fix', fix] if fix
 
           request_and_track(:post, add_query_string(url, extras), options)
         end
@@ -353,11 +363,17 @@ module Bosh
           options = options.dup
 
           skip_drain = !!options.delete(:skip_drain)
+          fix = !!options.delete(:fix)
+          canaries = options.delete(:canaries)
+          max_in_flight = options.delete(:max_in_flight)
 
           url = "/deployments/#{deployment_name}/jobs/#{job}"
           url += "/#{index_or_id}" if index_or_id
           url += "?state=#{new_state}"
           url += "&skip_drain=true" if skip_drain
+          url += "&fix=true" if fix
+          url += "&max_in_flight=#{max_in_flight}" if max_in_flight
+          url += "&canaries=#{canaries}" if canaries
 
           options[:payload]      = manifest_yaml
           options[:content_type] = 'text/yaml'
@@ -374,6 +390,12 @@ module Bosh
         def change_vm_resurrection_for_all(value)
           url     = "/resurrection"
           payload = JSON.generate('resurrection_paused' => value)
+          put(url, 'application/json', payload)
+        end
+
+        def change_instance_ignore_state(deployment_name, instance_group_name, id, ignore_state)
+          url     = "/deployments/#{deployment_name}/instance_groups/#{instance_group_name}/#{id}/ignore"
+          payload = JSON.generate('ignore' => ignore_state)
           put(url, 'application/json', payload)
         end
 
@@ -760,7 +782,7 @@ module Bosh
 
           response = try_to_perform_http_request(
             method,
-            "#{@scheme}://#{@director_ip}:#{@port}#{uri}",
+            "#{@scheme}://#{@director_host}:#{@port}#{uri}",
             payload,
             headers,
             num_retries,
@@ -865,14 +887,32 @@ module Bosh
           end
 
           if @credentials
+            @credentials.refresh unless payload.nil?
             headers['Authorization'] = @credentials.authorization_header
           end
 
-          http_client.request(method, uri, {
+          response = http_client.request(method, uri, {
             :body => payload,
             :header => headers,
           }, &block)
 
+          if !response.nil? && response.code == 401
+            if !payload.nil?
+              return response
+            end
+
+            if @credentials.nil? || !@credentials.refresh
+              raise AuthError
+            end
+
+            headers['Authorization'] = @credentials.authorization_header
+            response = http_client.request(method, uri, {
+                :body => payload,
+                :header => headers,
+            }, &block)
+          end
+
+          response
         rescue URI::Error,
                SocketError,
                Errno::ECONNREFUSED,

@@ -11,7 +11,7 @@ module Bosh::Director
       def self.parse(network_spec, availability_zones, global_network_resolver, logger)
         name = safe_property(network_spec, "name", :class => String)
 
-        reserved_ranges = global_network_resolver.reserved_legacy_ranges(name)
+        reserved_ranges = global_network_resolver.reserved_ranges
         subnet_specs = safe_property(network_spec, 'subnets', :class => Array)
         subnets = []
         subnet_specs.each do |subnet_spec|
@@ -38,7 +38,7 @@ module Bosh::Director
       # @param [NetworkReservation] reservation
       # @param [Array<String>] default_properties
       # @return [Hash] network settings that will be passed to the BOSH Agent
-      def network_settings(reservation, default_properties = VALID_DEFAULTS, availability_zone = nil)
+      def network_settings(reservation, default_properties = REQUIRED_DEFAULTS, availability_zone = nil)
         unless reservation.ip
           raise NetworkReservationIpMissing,
                 "Can't generate network settings without an IP"

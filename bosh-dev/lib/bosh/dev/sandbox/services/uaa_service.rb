@@ -7,11 +7,16 @@ module Bosh::Dev::Sandbox
     TOMCAT_VERSIONED_FILENAME = 'apache-tomcat-8.0.21'
     UAA_FILENAME = 'uaa.war'
 
-    UAA_VERSION = 'cloudfoundry-identity-uaa-2.0.3'
+    UAA_VERSION = 'cloudfoundry-identity-uaa-3.5.0'
 
     REPO_ROOT = File.expand_path('../../../../../../', File.dirname(__FILE__))
     INSTALL_DIR = File.join('tmp', 'integration-uaa', UAA_VERSION)
     TOMCAT_DIR = File.join(INSTALL_DIR, TOMCAT_VERSIONED_FILENAME)
+
+    # Keys and Certs
+    ASSETS_DIR = File.expand_path('bosh-dev/assets/sandbox/ca', REPO_ROOT)
+    CERTS_DIR = File.expand_path('certs', ASSETS_DIR)
+    ROOT_CERT = File.join(CERTS_DIR, 'rootCA.pem')
 
     def initialize(port_provider, base_log_path, logger)
       @port = port_provider.get_port(:uaa_http)
@@ -26,21 +31,16 @@ module Bosh::Dev::Sandbox
 
     def self.install
       webapp_path = File.join(TOMCAT_DIR, 'webapps', UAA_FILENAME)
-      return if File.exist?(webapp_path)
 
       FileUtils.mkdir_p(TOMCAT_DIR)
 
-      tomcat_url = "https://s3.amazonaws.com/bosh-dependencies/#{TOMCAT_VERSIONED_FILENAME}.tar.gz"
-
       retryable.retryer do
-        `curl -L #{tomcat_url} | (cd #{INSTALL_DIR} && tar xfz -)`
+        `#{File.dirname(__FILE__)}/install_tomcat.sh #{INSTALL_DIR} #{TOMCAT_VERSIONED_FILENAME} 957e88df8a9c3fc6b786321c4014b44c5c775773`
         $? == 0
       end
 
-      uaa_url = "https://s3.amazonaws.com/bosh-dependencies/#{UAA_VERSION}.war"
-
       retryable.retryer do
-        `curl --output #{webapp_path} -L #{uaa_url}`
+        `#{File.dirname(__FILE__)}/install_binary.sh #{UAA_VERSION}.war #{webapp_path} 6167d1b5afe3e12c26482fcb45c0056475cb3e1b9ca2996707d9ac9c22f60dc9 bosh-dependencies`
         $? == 0
       end
     end
@@ -71,7 +71,7 @@ module Bosh::Dev::Sandbox
     end
 
     def uaa_process
-      return @uaa_process if @uaa_process
+      @service.stop if @service
 
       opts = {
           'uaa.http_port' => @port,
