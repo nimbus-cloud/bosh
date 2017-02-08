@@ -28,7 +28,8 @@ MERGING CHANGES
     Build the stemcell (see below for instructions)
     Build bosh release
         cd release
-        export CANDIDATE_BUILD_NUMBER=3145
+        export CANDIDATE_BUILD_NUMBER=3312.17
+        export CANDIDATE_RELEASE_NUMBER=260.6
         bundle exec rake release:create_dev_release
         bosh create release --with-tarball
     Run bosh acceptance tests (BATS) - see below for instructions
