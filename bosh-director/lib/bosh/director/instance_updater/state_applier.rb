@@ -52,7 +52,7 @@ module Bosh::Director
         end
       end
 
-      if @instance.state == 'stopped' && current_state['job_state'] == 'running'
+      if ['stopped', 'passive'].include?(@instance.state) && current_state['job_state'] == 'running'
         raise AgentJobNotStopped, "'#{@instance}' is still running despite the stop command"
       end
 
@@ -73,7 +73,7 @@ module Bosh::Director
 
           if @instance.state == 'started'
             break if current_state['job_state'] == 'running'
-          elsif @instance.state == 'stopped'
+          elsif ['stopped', 'passive'].include?(@instance.state)
             break if current_state['job_state'] != 'running'
           end
         rescue Bosh::Director::TaskCancelled

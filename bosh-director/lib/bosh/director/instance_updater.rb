@@ -57,7 +57,7 @@ module Bosh::Director
         unless instance_plan.already_detached?
           Preparer.new(instance_plan, agent(instance), @logger).prepare
 
-          unless instance.model.state == 'stopped'
+          unless ['stopped', 'passive'].include?(instance.model.state)
             stop(instance_plan)
             take_snapshot(instance)
           end
@@ -140,6 +140,8 @@ module Bosh::Director
           when 'stopped'
             'stop'
           when 'detached'
+            'stop'
+          when 'passive'
             'stop'
           else
             instance_plan.instance.virtual_state

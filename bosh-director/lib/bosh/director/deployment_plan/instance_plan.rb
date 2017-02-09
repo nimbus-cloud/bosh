@@ -132,7 +132,7 @@ module Bosh
 
           return true if needs_to_fix?
 
-          if instance.state == 'stopped' && instance.current_job_state == 'running' ||
+          if ['stopped', 'passive'].include?(instance.state) && instance.current_job_state == 'running' ||
             instance.state == 'started' && instance.current_job_state != 'running'
             @logger.debug("Instance state is '#{instance.state}' and agent reports '#{instance.current_job_state}'")
             return true

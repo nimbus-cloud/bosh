@@ -148,7 +148,7 @@ module Bosh::Director::Models
     end
 
     def expects_vm?
-      lifecycle == 'service' && ['started', 'stopped'].include?(self.state)
+      lifecycle == 'service' && ['started', 'stopped', 'passive'].include?(self.state)
     end
 
     private

@@ -45,6 +45,7 @@ module Bosh::Director
     def needs_drain_to_migrate_data?
       @target_state == 'stopped' ||
         @target_state == 'detached' ||
+        @target_state == 'passive' ||
         @instance_plan.needs_shutting_down? ||
         @instance_plan.persistent_disk_changed? ||
         @instance_plan.networks_changed?

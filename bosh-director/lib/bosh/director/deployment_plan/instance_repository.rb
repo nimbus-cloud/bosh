@@ -55,7 +55,7 @@ module Bosh::Director::DeploymentPlan
 
     def check_if_nimbus_passive_state(job)
       if job.passive == :enabled
-        'stopped'
+        'passive'
       elsif job.passive == :disabled
         'started'
       else
