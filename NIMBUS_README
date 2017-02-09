@@ -49,6 +49,7 @@ BUILDING STEMCELL
     # Building stemcell from public base image:
     export NIMBUS_PASSWORD=<stemcell_password>
     export STEMCELL_BUILD_NUMBER=<stemcell_version>
+    export CANDIDATE_BUILD_NUMBER=<stemcell_version>
     bundle exec rake stemcell:build[vsphere,esxi,ubuntu,trusty,go,bosh-os-images,bosh-ubuntu-trusty-os-image.tgz]
 
     # one of the tests fails: bosh-stemcell/spec/stemcells/go_agent_spec.rb:38
