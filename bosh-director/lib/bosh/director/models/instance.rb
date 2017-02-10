@@ -12,7 +12,7 @@ module Bosh::Director::Models
       validates_presence [:deployment_id, :job, :index, :state]
       validates_unique [:deployment_id, :job, :index]
       validates_integer :index
-      validates_includes %w(started stopped detached), :state
+      validates_includes %w(started stopped detached passive), :state
     end
 
     def managed_persistent_disk
