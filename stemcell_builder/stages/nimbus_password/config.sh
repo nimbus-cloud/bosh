@@ -14,6 +14,6 @@ if [ -z "${NIMBUS_PASSWORD:-}" ]; then
   exit 1
 else
   echo "PERSISTING ENVIRONMENT TO ${settings_file}"
-  persist NIMBUS_PASSWORD
+  persist_value NIMBUS_PASSWORD
 fi
 

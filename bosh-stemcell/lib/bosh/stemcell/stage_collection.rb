@@ -120,6 +120,7 @@ module Bosh::Stemcell
         # :root_certificate,
         :drbd,
         :bosh_monit,
+        :nimbus_password,
         # nimbus customisations - end
         :bosh_clean,
         :bosh_harden,
@@ -298,7 +299,6 @@ module Bosh::Stemcell
         :bosh_sysctl,
         :bosh_limits,
         :bosh_users,
-        :nimbus_password,
         :bosh_monit,
         :bosh_ntpdate,
         :bosh_sudoers,
