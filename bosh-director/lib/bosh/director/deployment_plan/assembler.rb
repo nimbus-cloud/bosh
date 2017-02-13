@@ -133,6 +133,12 @@ module Bosh::Director
     def bind_properties
       @deployment_plan.instance_groups.each do |instance_group|
         instance_group.bind_properties
+        ### nimbus specific props - start ###
+        # horrible hack required to pass dns details to active/passive jobs
+        if @deployment_plan.properties['dns']
+          instance_group.properties['dns'] = @deployment_plan.properties['dns']
+        end
+        ### nimbus specific props - end ###
       end
     end
 
