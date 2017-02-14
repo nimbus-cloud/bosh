@@ -104,6 +104,7 @@ module Bosh::Director
 
           allow(deployment_plan).to receive(:instance_groups).and_return([instance_group_1, instance_group_2])
           allow(deployment_plan).to receive(:name).and_return([instance_group_1, instance_group_2])
+          allow(deployment_plan).to receive(:properties).and_return({})
         end
 
         it 'validates the instance_groups' do
