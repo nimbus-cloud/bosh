@@ -8,7 +8,7 @@ export BAT_INFRASTRUCTURE=vsphere
 export BAT_NETWORKING=manual
 #export BAT_VCAP_PASSWORD=c1oudc0w
 export BAT_VCAP_PASSWORD=<nimbus_password>
-export BAT_STEMCELL=$PWD/tmp/bosh-stemcell-3312.17-vsphere-esxi-ubuntu-trusty-go_agent.tgz
+export BAT_STEMCELL=$PWD/tmp/bosh-stemcell-3312.17.1-vsphere-esxi-ubuntu-trusty-go_agent.tgz
 export BAT_DEBUG_MODE=true
 export UNSUPPORTED_BATS=dns,raw_ephemeral_storage,vip_networking
 
